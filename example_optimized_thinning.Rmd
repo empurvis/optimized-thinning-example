@@ -1,0 +1,1025 @@
+---
+title: "Optimized thinning detailed example"
+author: "Emily Marie Purvis"
+date: "2025-02-11"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+Questions for people reviewing this draft:
+- would it be more helpful as an Rmd, or as an html? Originally I wanted to keep at as an Rmd because I think it's helpful to run the code chunk by chunk and be able to manually examine the outputs. However, if it knit it as an html I can include in-text images and graphs that may increase clarity and understanding
+
+# Goal
+
+Create a detailed yet digestible example demonstrating how our plot thinning optimization code for the Yuba large trees project works. This R file is accompanied by a LaTeX document with diagrams and mathematical formulations of the assignment matrices, decision variables, constraints, and objective function— this document is in the same Git folder as this Rmd. 
+
+# Table of Contents
+
+## 1. Introduction to optimization
+
+## 2. Supplementary documents
+
+## 3. R packages
+
+## 4. Plot thinning optimization
+
+### 4.1 Basic problem setup
+
+### 4.2 Target density and basal area distributions
+
+### 4.3 Density assignment matrix
+
+### 4.4 Basal area assignment matrix
+
+### 4.5 Decision variables
+
+### 4.6 Constraints
+
+### 4.7 Objective function
+
+### 4.8 Putting the elements of our linear program together
+
+### 4.9 Solve
+
+### 4.10 Interpret and visualize results
+
+## 5. References
+
+# 1. Introduction to optimization
+
+Mathematical optimization (also called mathematical programming) is a broad field of applied mathematics that seeks to find the most optimal solution to a problem from the set of all feasible solutions. Mathematical optimization is applicable to many types of problems across many fields, including engineering, finance, manufacturing, economics, marketing, and biology. 
+Optimization problems typically take the form of:
+- either minimizing or maximizing a function (called the objective function)
+- the objective function is often subject to a series of constraints (optional)
+- the variables in the objective function and constraints are called the decision variables
+
+The **decision variables** in an optimization problem are all the inputs that we control. They are typically represented as x1, x2, x3, ...xn. All of the variables that occur in the objective function and constraints are decision variables. An optimization problem might have only one variable, or it might have many variables. Variables may be continuous or discrete (such as integers or binary variables). When the optimization problem is solved (that is, when the objective function is minimized or maximized subject to the problem constraints), the optimal values of the decision variables are determined. 
+
+The **objective function** (sometimes called the cost function or the loss function) is the core function of the optimization problem that we wish to minimize or maximize. The objective function can take on a variety of forms: linear, quadratic, conic, non-linear, etc. When the optimization problem is solved, the optimal value of the objective function can be calculated.
+
+The **constraints** are additional equations that must be satisfied to solve the optimization problem. Not all optimization problems have constraints. Constrained optimization refers to problems with constraints, and unconstrained optimization refers to problems without constraints. Like the objective function, constraints can take on a variety of forms. Constraints can be linear, box (also called variable bounds), quadratic, conic, or non-linear. An optimization problem doesn't have to have an objective function with the same form as its constraints; for example, a problem may have a quadratic objective function with linear constraints. 
+
+The **feasible region** or solution space of an optimization problem is the set of all possible solutions that satisfy the constraints. The feasible region is defined independently of the objective function. The feasible region can be portrayed on a Cartesian coordinate system by assigning each decision variable its own axis and graphing the constraints. The number of dimensions of the feasible region is equal to the number of decision variables in the optimization problem. The space(s) on the graph where all of the constraints overlap is the feasible region. If there are no points that satisfy all of the constraints, the problem is said to be infeasible and there is no optimal solution. Feasible regions may be bounded (enclosed) or unbounded (continue forever in one or more directions). Feasible regions may be n-dimensional shapes with continuous sides or merely collections of points. The type of feasible region a problem will have depends on the nature of its constraints and decision variables. 
+
+There are many categories of optimization problems, defined by the type of objective function and constraints a particular problem has. Different categories of optimization problems have different qualities and methods used to solve them. Some of the key distinctions between types of optimization problems include:
+- discrete optimization problems (some or all of the variables are discrete) vs. continuous optimization problems (all of the variables are continuous, which allows for calculus to be used in optimal solution-finding). The term "integer programming" is typically used to describes optimization problems in which some or all of the decision variables must be integers. This includes optimization problems in which some or all of the decision variables are restricted to binary values (either 0 or 1). An optimization problem with some discrete and some continuous variables is called a mixed-integer programming problem. An integer programming problem with a linear objective function and linear constraints is called integer linear programming. The tree thinning example problem detailed below is an example of integer linear programming. 
+- convex problems (the objective function and constraints are both convex functions, that is, they are either linear or have a convex shape) vs. non-convex problems (either the objective function or constraints are not convex). Convex functions have a unique global minimum. In contrast, non-convex functions have varying curvature, potentially including many local minima/maxima, saddles, flat regions, and other features that algorithms solving the problem can get "stuck" in. Consequently, non-convex optimization problems are typically much harder to solve than convex problems and require different algorithms to solve them. Linear programming is a type of convex optimization in which the objective function is linear, and is subject to linear equality and inequality constraints.
+
+There are many optimization algorithms (often referred to as "solvers") that can be used to solve different types of optimization problems. Many solvers can only be used to solve specific classes of optimization problems. For example, GLPK (the GNU Linear Programming Kit) can only be used to solve linear programming and mixed-integer programming problems (GNU Project). In contrast, ALABAMA (Augmented Lagrangian Adaptive Barrier Minimization Algorithm) can be used to solve smooth non-linear objective functions with linear or non-linear equality or inequality constraints (Varadhan 2015). The internal mathematical mechanisms of these solvers and how to choose a solver for a particular optimization problem is beyond the scope of this article. The most important thing for you to know about solvers is that there are lots of them, and different solvers solve different types of optimization problems based on the form of the objective function and constraints. 
+
+Abundant software exists to write and solve optimization problems. Some software is optimization-specific (for example, one UC Davis professor we consulted with frequently works and teaches in AMPL, a modeling language with mathematical syntax that mirrors optimization programming format). Optimization solvers can also be imported into programming languages like Python, Julia, and R via packages. Because R is a common programming language used in ecology, we chose to do this project in R using the ROI (R Optimization Infrastructure) package. 
+
+ROI is fantastic for a number of reasons:
+- it uses a consistent and easy-to-understand framework to model a variety of types of optimization problems (linear, quadratic, conic, generalized non-linear)
+- it imports a variety of different solvers (both open-source and commercial)
+- it has a variety of helpful functions to: determine which solvers are applicable to particular optimization problems, reformulate optimization problems (for example, many linear and nonlinear objective functions and constraints can be written as conic problems), read and write optimization problems in different formats, and more.
+
+You can learn more about ROI in Theußl et al. 2020 and at <https://roi.r-forge.r-project.org/>. 
+
+In creating an optimization problem from a real-world scenario, there are multiple steps to take. First, it is helpful to understand the scenario in detail. Then, the decision variables, objective function, and constraints can be identified in writing. After that, the objective function and constraints can be translated to their mathematical forms. At this point, it is necessary to identify the type of optimization problem (linear, quadratic, integer, etc.), an applicable solver, and the software or package being used to run the model through the chosen algorithm. Next, the problem can be written in the chosen programming language and solved. Below we will walk through each of these steps using our example problem. 
+
+If you want to learn more about optimization programming beyond this very brief introduction, here are a few recommendations for resources:
+
+- This Medium article <https://medium.com/@chongjingting/a-simple-introduction-to-optimization-1329b82a8061> written by Chong Jing Ting provides a brief overview of optimization with a series of helpful graphs. It's a great place to start if you want a short, broad, and easy-to-understand overview of optimization. 
+
+- Stanford Professor Stephen Boyd and UCLA Professor Lieven Vandenberghe's 2004 book "Convex Optimization" is publicly available at <https://web.stanford.edu/~boyd/cvxbook/bv_cvxbook.pdf>. As the book title suggests, the text focuses on convex optimization. The tree thinning example below is convex. 
+
+- Wikipedia is, as always, an incredible resource. I recommend starting at the Mathematical Optimization page <https://en.wikipedia.org/wiki/Mathematical_optimization> and going from there. The "Major Subfields" section of that page links to tons of different types of optimization programming. 
+
+- Dr. James Burke from University of Washington has many materials from a linear optimization course online at <https://sites.math.washington.edu/~burke/crs/407/>, including a course textbook and lecture notes he wrote. *for this bullet point and the one below: is it okay to just...link to other people's course materials? I mean these materials are publicly available online (where I found them) but I'm not sure the creators of these materials meant them for public distribution or consumption* **this isn't yet cited in the references section**
+
+- Stanford has the outline of a course on mathematical optimization for high school students, including all of the powerpoint slides and accompanying Julia notebooks for the entire course, at <https://web.stanford.edu/group/sisl/k12/optimization/#!index.md>. **not yet cited in the references section**
+
+- There are a plethora of textbooks on optimization programming for many levels of learners. Check out what's available in your local university library. Some widely used and highly recommended texts include Papadimitriou and Steiglitz's "Combinatorial optimization: algorithms and complexity" (1998) and Nocedal and Wright's "Numerical optimization" (1999). 
+
+# 2. Supplementary documents
+
+In the same folder as this Rmd, there is a PDF that contains additional figures and equations that will be helpful in understanding this example problem. This PDF is referred to as *Appendix A* throughout the Rmd. 
+
+# 3. R packages
+
+This code requires three packages to run.
+
+First is ROI (an acronym for R Optimization Infrastructure), <https://roi.r-forge.r-project.org/>. The ROI packages enables R coders to model a variety of types of optimization problems in a consistent way (including linear, quadratic, conic, and certain types of non-linear problems). ROI also allows users access to a variety of commercial and open-source solvers. The package has a handful of other useful functions as well. The ROI website linked above contains a fantastic introduction to the package, including installation tips, basic use instructions, and a handful of simple examples. In addition, I highly recommend the package author's fantastic 2020 paper "ROI: An Extensible R Optimization Infrastructure" published in the Journal of Statistical Software (Theußl, Schwendinger, & Hornik 2020). 
+
+Second, you will need the glpk extension of the ROI package, ROI.plugin.glpk. Instructions on how to install this package can be found in the installation section of the ROI website linked above (they are slightly different for different operation systems). This extension imports the Rglpk package. Glpk (short for "GNU Linear Programming Kit") is an open-source solver for linear programming and mixed-integer linear programming problems (Theußl, Schwendinger, & Hornik 2020). For mixed-integer problems (the type of example here) the solver uses a branch-and-bound algorithm with Gomory's mixed integer cuts ("GLPK (GNU Linear Programming Kit)," n.d.). You don't need to understand how the solver works to use it :)
+
+The last required package is tidyverse (<https://www.tidyverse.org/>). Loading tidyverse will load a variety of other packages that perform data visualization, manipulation, tidying, import, data/time functions, and much more (Wickham et al. 2019). The main tidyverse functions we use here are in dplyr (data manipulation). 
+
+```{r}
+# Install packages. You only need to do this if you don't have these packages installed already.
+
+install.packages("ROI") # should work in any operating system
+install.packages("ROI.plugin.glpk") # for Windows-- check the ROI website installation section for instructions on how to do this in other operating systems
+install.packages("tidyverse") # should work in any operating system
+
+```
+
+```{r}
+# Load libraries
+
+library(ROI)
+library(ROI.plugin.glpk)
+library(tidyverse)
+
+```
+
+# 4. Plot thinning optimization
+
+*make this grammatically correct and write out each number ten and below (e.g. one, two, three)*
+
+*you have a lot of "" in here, make sure to double check for use vs mention distinctions*
+
+## 4.1 Basic problem setup
+
+Imagine we have collected forest inventory data from six plots. During the original inventory, each plot has between two and eight trees (inclusive), and each tree has a basal area between 0.2 m^2 and 3.2 m^2 (inclusive). Don't think about these numbers too hard, they're arbitrarily chosen for the sake of example and don't necessarily reflect what a real forest looks like. We want to thin our plots (cut down trees) such that they fit both a density distribution and a basal area distribution. 
+
+These forest structure distributions are probability distributions: mathematical functions that describe how likely an outcome or set of outcomes is to occur within a sample space (the set of all possible outcomes). There are many types of probability distributions (discrete vs. continuous, univariate vs. multivariate) and distributions can take on a variety of shapes (some of the most well-known include normal, Poisson, and log-normal). Our density and basal area distributions are both univariate (that is, they only have one variable) and describe the target outcome for our entire set of plots. The density distribution (how many trees are in each plot after thinning) is discrete (as we can only have whole numbers of trees in each plot) while the basal area distribution is continuous (we can have fractions of a square meter of basal area). These distributions are divided into bins, where each bin spans a range of values within the sample space and has a specific probability assigned to it. For example, in the normal distribution, the bin that ranges from the mean to the one standard deviation above the mean covers 34.1% of the area of the sample space. In terms of our forest structure distributions example, that means that any random plot would have a 34.1% chance of belonging that bin, and that 34.1% of the plots in our study would belong to that bin (after thinning). The important takeaways about our forest structure distributions are:
+- after thinning, plots will not all have the same target density and basal area
+- instead, the density and basal area distributions define multiple bins of density/basal area values. Plots will be assigned to one bin per distribution (that is, each plot will be sorted into one density bin and one basal area bin) and thinned to within the range of those bins. 
+
+The target density and basal area distributions are discussed in more detail in *section 4.2* of this document. 
+
+We begin our code by establishing some variables and generating plot/tree data. 
+
+```{r}
+set.seed(444) # set.seed allows reproducible results for code that generates random values. There are a few random values in this code (for example, generating the trees in each plot) and this allows everybody to follow along with the example and get the same results. 
+
+N_PLOTS <- 6 # number of plots in this example problem. We're defining this variable so that we can use it as a shorthand throughout the rest of our code. 
+
+# Generate some basic tree and plot data
+
+min_trees <- 2 # minimum number of starting trees in each plot is two
+
+max_trees <- 8 # maximum number of starting trees in each plot is eight
+
+min_ba <- 0.2 # minimum basal area of one tree is 0.2 m^2
+
+max_ba <- 3.2 # maximum basal area of one tree m^2
+
+# Initialize a list to store data for each plot
+
+plots <- list()
+
+# Generate data for each plot
+
+for (i in 1:N_PLOTS) { # this loop cycles through each of the six plots and creates tree data for each one
+
+  n_trees_in_plot <- sample(min_trees:max_trees, 1) # chooses a random number of trees in each plot between two and eight (inclusive)
+  
+  tree_bas <- runif(n_trees_in_plot, min = min_ba, max = max_ba) # chooses random basal areas for each tree between 0.2 and 3.2 (inclusive)
+
+  plots[[i]] <- tree_bas # assigns the generated tree data to each plot
+}
+
+# Make data.frames for each plot individually. These are helpful to check out and get a sense of what each plot looks like before thinning. 
+
+for (i in 1:N_PLOTS) { # loop that cycles through the six plots
+
+  assign(paste0("plot", i, "original"), as.data.frame(plots[[i]]) %>% rename ("ba" = 1) %>% mutate(plot = i)) # creates a data.frame for the current plot with all of the tree data stored in the list above. These data.frames are named "plot1original", "plot2original", etc.
+
+}
+
+# Make a single data.frame that combines all the trees in all the plots (pre-thinning)
+
+alltrees <- full_join (plot1original, plot2original) %>% full_join(plot3original) %>% full_join(plot4original) %>% full_join(plot5original) %>% full_join(plot6original)
+
+# Generate a random cost coefficient for each tree- this will be important in section 4.7 about the objective function
+
+alltrees$cost_coefficient <- runif(nrow(alltrees))
+
+```
+
+Some trees in our plots are "off limits" and cannot be cut down. In our project's actual diameter thinning scenarios, each tree species has a certain size above which individuals cannot be removed. For example, under current USFS policy in the Yuba watershed, conifer trees above 30" DBH (diameter at breast height) and hardwood trees above 12" DBH cannot be removed. In this example we do not differentiate trees by species, so we will not have species-specific size cutoffs. As a proxy, let's say that trees with a basal area larger than 2.5 cannot be cut down. Remember that our trees vary in basal area from 0.2 to 3.2, so trees with basal areas greater than 2.5 are relatively large. Don't think too hard about what it means for a tree to have a basal area of 2.5 in the real world, this is just for the sake of example. 
+
+The next chunk of code will label which trees are removable vs. not removable, create some pre-thinning summary statistics, and create data.frames with only the removable trees in each plot.
+
+```{r}
+# In the data.frame with all the trees from all the plots, demarcate which are eligible for removal and which are not based on size
+
+alltrees <- alltrees %>%
+  add_column(eligible_for_removal = "") # add a column
+
+alltrees$eligible_for_removal <- alltrees$ba < 2.5 # this will populate our new column with "TRUE" for trees that are small enough to be removed, and "FALSE" with trees too big to be removed
+
+# Create a blank data.frame of pre-thinning plot statistics
+  
+plot <- c(1:6)
+
+plot_stats <- as.data.frame(plot)
+
+# Create a summary of the number of trees not removable and total basal area not removable from each plot
+
+summary_stats <- alltrees %>%
+  filter(eligible_for_removal == FALSE) %>%
+  group_by(plot) %>%
+  summarise(
+    total_trees_not_removable = n(),
+    total_basal_area_not_removable = sum(ba)
+  ) # generate these statistics 
+
+plot_stats <- full_join(plot_stats, summary_stats) # merge to the plot statistics data.frame
+
+# Two of the plots (1 and 2) don't have any trees ineligible for removal so we need to put zeros in the columns for number of trees not eligible for removal and total basal area not removable
+
+plot_stats <- plot_stats %>% mutate(total_trees_not_removable = replace_na(total_trees_not_removable, 0))
+
+plot_stats <- plot_stats %>% mutate(total_basal_area_not_removable = replace_na(total_basal_area_not_removable, 0))
+
+# Add the total number of starting trees and the total (un-thinned) basal area to our plot statistics table
+
+summary_stats_original <- alltrees %>%
+  group_by(plot) %>%
+  summarise(
+    total_starting_trees = n(),
+    total_starting_basal_area = sum(ba)
+  ) # generate these statistics
+
+plot_stats <- full_join(plot_stats, summary_stats_original) # merge to the plot stats data.frame
+
+# Create a data.frame with all of the removable trees in our problem plus a data.frame with all of the non-removable trees
+
+removable_trees <- subset(alltrees, eligible_for_removal == TRUE)
+
+nonremovable_trees <- subset(alltrees, eligible_for_removal == FALSE)
+
+# Create sub data.frames for removable trees in each plot
+
+split_tree_data <- split(removable_trees, removable_trees$plot)
+
+for (plot in names(split_tree_data)) { # loops through each of the six plots
+  
+  assign(paste0("plot", plot), split_tree_data[[plot]]) # assigns each plot's data to its own data.frame (named plot1, plot2, etc)
+  
+}
+
+```
+
+I recommend opening and examining the "plot_stats" data.frame right now! I find it a helpful tool to look at while thinking about the problem at hand: removing trees from each plot such that all the plots fit into both a density and basal area distribution. You can also open the individual plot data.frames with either all the trees ("plotxoriginal") or just the removable trees ("plotx"). It would probably be possible to figure out how to remove trees from each plot by hand such that the whole set of plots fits the density and basal area distributions, but it would certainly take some time. This type of problem gets tricky really fast when the plots have more than a handful of trees, when there are more than a handful of plots, and when there are more bins in each distribution. This is why setting this up as an optimization problem is so helpful. 
+
+## 4.2 Target density and basal area distributions
+
+The target density distribution has three bins: 1-3 trees, 4-6 trees, and 7-9 trees (inclusive). Each bin of the target density distribution should be assigned between one and three plots. So, after thinning our plots, there should be either one, two, or three plots in each bin of the target density distribution. These values were all arbitrarily decided for the sake of example. Analyzing the results of the solved optimization problem will tell us which plots have been sorted into which density bins, and how many trees are in each plot after thinning. 
+
+In this code chunk we will create variables for the number of density bins and for the upper and lower limits of the number of trees in each bin. 
+
+```{r}
+N_DENSITY_GROUPS <- 3 # variable that stores the number of bins in the density distribution
+
+# density bin limits. Density bin 1 will have 1-3 trees, bin 2 will have 4-6 trees, bin 3 will have 7-9 trees. 
+
+target_density_distribution_lower <- c(1, 4, 7)
+
+target_density_distribution_upper <- c(3, 6, 9)
+
+```
+
+The target basal area distribution also has three bins: 0.2 to 5 m^2, 5.1 to 10 m^2, and 10.1 to 15 m^2 (inclusive). Each bin of the target basal area distribution should be assigned between one and three plots. So, after thinning our plots, there should be either one, two, or three plots in each bin of the basal area distribution. Again, these bin values were arbitrarily chosen for the sake of example. Analyzing the results of the solved optimization problem will tell us which plots have been sorted into which basal area bins, and the total basal area in each plot after thinning. 
+
+In this code chunk we will create variables for the number of basal area bins and for the upper and lower limits of the total basal area in each bin. 
+
+```{r}
+N_BA_GROUPS <- 3 # number of bins in the basal area distribution
+
+# basal area bin limits. Bin 1 will have 0.2-5 m^2, bin 2 will have 5.1-10 m^2, and bin 3 will have 10.1-15 m^2. 
+
+target_ba_distribution_lower <- c(0.2, 5.1, 10.1)
+
+target_ba_distribution_upper <- c(5, 10, 15)
+
+```
+
+We can think of the target density distribution and the target basal area distribution in terms of **assignment matrices**. The assignment matrices are tools for depicting which plots are sorted into which density and basal area bins. Throughout this example problem we will think about both a density assignment matrix and a basal area assignment matrix. In each assignment matrix, each plot is represented by one row and each bin is represented by one column (because there are six plots and three bins per distribution, this means that both of our assignment matrices have six rows and three columns). If a plot is sorted into a particular bin, the corresponding cell of the matrix is filled in with a "1". If a plot is not sorted into a bin, the corresponding cell of the matrix is filled in with a "0". Each assignment matrix is discussed in more detail below in sections 4.3 and 4.4, and in *Appendix A, Section 2*. 
+
+## 4.3 Density assignment matrix
+
+In the density assignment matrix, there are six rows (one for each plot) and three columns (one for each bin of the target density distribution) (see *Appendix A, Section 2.1* for a visualization of the empty assignment matrix, and *Appendix A, Section 2.2* for an example of what the matrix might look like once it is filled out. When a plot is assigned to one of the three density bins, that means it was thinned to match the number of trees required in that bin. For example, if plot 1 is assigned to bin 1, plot 1 will have one to three trees after thinning. If plot 1 is assigned to bin 2, plot 1 will have four to six trees after thinning. If plot 1 is assigned to bin 3, plot 1 will have seven to nine trees after thinning. 
+
+After the optimization problem is solved, each plot will be assigned to exactly one bin. This means that the sum of every row of the assignment matrix will be equal to one. Additionally, each bin will be assigned either one, two, or three plots. This means that the sum of every column of the assignment matrix will be equal to a number between one and three. See *Appendix A, Section 2.3* for a visualization of these row and column sums. 
+
+These row and column sums are represented as constraints in our optimization problem. There are six row constraints associated with the density assignment matrix (one for each plot) dictating that the sum of each row must be equal to one. There are three column constraints associated with the lower bound of each bin of the assignment matrix: the sum of plots in each of the three bins must be greater than or equal to one. There are three column constraints associated with the upper bound of each bin of the assignment matrix: the sum of plots in each of the three bins must be less than or equal to three. This means there are 6 + 3 + 3 = 12 total constraints associated with the density assignment matrix. We will talk about these constraints in much more detail in section 4.6 of this document. 
+
+Each cell of the density assignment matrix represents one binary decision variable. There are 6 rows x 3 columns = 18 cells in the density assignment matrix, which translates to 18 corresponding decision variables in our optimization problem. After the optimization problem is solved, each of these variables will be equal to either 0 (if the corresponding plot is not assigned to the corresponding bin) or 1 (if the corresponding plot is assigned to the corresponding bin). There is no cost associated with assigning specific plots to specific bins, so in the objective function the coefficients of these decision variables is 0. We will talk more about the decision variables in this optimization problem in section 4.5 of this document, and more about the objective function in section 4.7. 
+
+## 4.4 Basal area assignment matrix
+
+The basal area assignment matrix and corresponding decision variables are analogous to the density assignment matrix and decision variables. 
+
+In the basal assignment matrix, there are six rows (one for each plot) and three columns (one for each bin of the target distribution) (see *Appendix A, Section 2.4* for a visualization of the empty matrix, and *Appendix A, Section 2.5* for an example of what the matrix might look like once we have solved the problem). When a plot is assigned to one of the three basal area bins, that means it was thinned to match the total basal area required in that bin. For example, if plot 1 is assigned to bin 1, plot 1 will have a total basal area of 0.2-5 m^2 after thinning. If plot 1 is assigned to bin 2, plot 1 will have a total basal area of 5.1-10 m^2 trees after thinning. If plot 1 is assigned to bin 3, plot 1 will have a total basal area of 10.1-15 m^2 trees after thinning.
+
+When the optimization problem is solved, each plot will be assigned to one bin. This means that the sum of every row of the assignment matrix will be equal to one. Each bin will be assigned between one and three plots. This means that the sum of every row of the assignment matrix will be greater than or equal to one and less than or equal to three. See *Appendix A, Section 2.6* for a visualization of these row and column sums. 
+
+These row and column sums are represented as constraints in our optimization problem. There are six row constraints associated with the basal area assignment matrix (one for each plot) dictating that the sum of each row must be equal to one. There are three column constraints associated with the lower bound of each bin of the assignment matrix: the sum of plots in each of the three bins must be greater than or equal to one. There are three column constraints associated with the upper bound of each bin of the assignment matrix: the sum of plots in each of the three bins must be less than or equal to three. This means there are 6 + 3 + 3 = 12 total constraints associated with the basal area assignment matrix, and 12 + 12 = 24 total constraints associated with both the density and basal area assignment matrices. We will talk about these constraints in much more detail in section 4.6 of this document. 
+
+Each cell of the basal area assignment matrix represents one binary decision variable. There are 6 rows x 3 columns = 18 cells in the basal area assignment matrix, which translates to 18 corresponding decision variables in our optimization problem. After the optimization problem is solved, each of these variables will be equal to either 0 (if the corresponding plot is not assigned to the corresponding bin) or 1 (if the corresponding plot is assigned to the corresponding bin). Just like the density assignment matrix decision variables, there is no cost associated with assigning specific plots to specific bins, so in the objective function the coefficients of these decision variables is 0. We will talk more about the decision variables in this optimization problem in section 4.5 of this document, and more about the objective function in section 4.7. 
+
+## 4.5 Decision variables
+
+Each decision variable in this problem is binary (that is, each decision variable will be assigned a value of either 0 or 1 when we solve the optimization problem). There are two types of decision variables in this problem. First are the variables that represent which plots get assigned to which bins (discussed in sections 4.3 and 4.4 above). The second type of decision variables represent which trees we choose to keep versus those we cut down. 
+
+Assignment matrix decision variables: Each cell of each assignment matrix represents one binary decision variable that represents whether a particular plot is assigned to a particular bin of the distribution. Each assignment matrix has 18 cells (6 rows x 3 columns). This means there are 18 cells of the density assignment matrix + 18 cells of the basal area assignment matrix = 36 decision variables associated with the two assignment matrices. 
+
+Tree decision variables: Each removable tree in each plot is represented by one decision variable. If a tree decision variable is equal to 1, that means the tree survives the thinning process. If a tree decision variable is equal to 0, that tree was cut down. After the optimization problem is solved, we can look at the results and see which particular trees were kept and which were removed. Non-removable trees (that is, those above the size cut-off that are not eligible to be cut down) are not represented by decision variables because there is no decision to be made about whether to remove them. 
+
+This code chunk defines the number of decision variables in our optimization problem. 
+
+```{r}
+# Create a variable that defines the number of removable trees in all the plots
+
+N_TREES <- nrow(removable_trees)
+
+# Create a variable for the number of decision variables in our problem
+
+N_VARIABLES <- ((N_DENSITY_GROUPS * N_PLOTS) + (N_BA_GROUPS * N_PLOTS) + N_TREES)
+
+```
+
+The order of the decision variables is very important! Recall from the Introduction above that decision variables are typically numbered x1, x2, x3, ...xn. Each numbered variable represents a specific decision about a plot/bin assignment or an individual tree removal. The order we choose to put the decision variables in doesn't really matter (so, for example, it doesn't matter if the plot/bin assignment variables start at x1 or if the tree variables start at x1), but it's critical for us to choose an order and keep track of it. 
+
+The order we are going to put the decision variables in is as follows: the first 18 decision variables (x1 through x18) represent the density assignment matrix, the next 18 decision variables represent the basal area assignment matrix (x19 through x36), and the last N_TREES decision variables represent the individual removable trees (x37 through x64). Check out *Appendix A, Section 3* to see a representation of each decision variable and the order they occur in in. 
+
+## 4.6 Constraints
+
+Each constraint is a mathematical condition that must be satisfied by the optimization solver in order to find a solution to the problem. Essentially, each constraint is a mathematical formula that dictates which solutions may be possible for a particular optimization problem. In this problem, all of the constraints are linear equalities and inequalities. Essentially, each of the constraints is a formula that adds together certain decision variables. Sometimes the decision variables in the constraints are multiplied by coefficients as well. 
+
+As discussed in sections 4.3 and 4.4 above, the density and basal area assignment matrices each contribute 12 constraints to our optimization problem (six row constraints + three column constraints for the lower bound of each bin + three column constraints for the upper bound of each bin = 12 constraints for each of two matrices = 24 total constraints). The assignment matrices (and the corresponding constraints) tell us how many plots can be assigned to each bin, how many times each plot can be assigned to a bin, and, when the problem is solved, which plots are ultimately assigned to which bins. These will be 24 of the constraints in our optimization problem. 
+
+We need to add a few additional constraints to make sure the problem is solved correctly. For each bin of the density and basal area distributions, we need to define the corresponding plot density (total number of trees in the plot) or plot basal area (sum of the basal area of all trees). This means that we will have a constraint for each plot that represents the lower limit of each bin in each assignment matrix, and a constraint for each plot that represents the upper limit of each bin in each assignment matrix. For example, we need a constraint dictating that plot 1 should have greater than or equal to one tree if it is assigned to density bin 1, greater than or equal to four trees if it is assigned to density bin 2, and greater than or equal to seven trees if it is assigned to density bin 3. We need another constraint dictating that plot 1 should have less than or equal to three trees if it is assigned to density bin 1, less than or equal to six trees if it is assigned to density bin 2, and less than or equal to nine trees if it is assigned to density bin 3. 
+
+This means that we need to add six lower bound constraints and six upper bound constraints for the density assignment matrix (an additional 12 constraints). We also need to add six lower bound constraints and six upper bound constraints for the basal area assignment matrix (an additional 12 constraints). This brings us to a grand total of 24 constraints (discussed in line 346) + 12 + 12 = 48 constraints in our optimization problem. 
+
+If you are confused or overwhelmed, that's okay! We are going to walk through the creation and meaning of each constraint step by step. The important thing to remember right now is that we are going to have 48 total constraints. 
+
+### 4.6.1 Constraint matrix
+
+The constraint matrix is a way of keeping track of which decision variables are relevant to each constraint, and which coefficients the decision variables have in each constraint. Each constraint is represented by one row in the constraint matrix. This means that our constraint matrix will have 48 rows. Our constraint matrix will have one column for each decision variable (N_VARIABLES = 64, 64 total columns). 
+
+Essentially, each row of the constraint matrix is a shorthand way of representing the mathematical formula for that constraint. For example, if one of our constraints is "x1 + 0.5x2 = 2", we would fill in that row of the constraint matrix with a "1" in the column that represents decision variable x1 and a "0.5" in the column that represents decision variable x2. 
+
+After we create the constraint matrix, we will create vectors of the right hand side and direction values of the constraint formulae. For our example constraint of "x1 + 0.5x2 = 2", the right hand side vector would contain a "2" and the direction vector would contain an "=" in the positions that represent this constraint. In this way, we can mathematically represent all of our constraints with our constraint matrix plus the vectors of right hand side and direction values. We will plug the constraint matrix into our formulation of the optimization problem later on. 
+
+The code chunks below walk through creating the constraint matrix row by row. *Appendix A Section 4* contains the mathematical formulas for and a brief description of each constraint. 
+
+### 4.6.2 Creating an empty constraint matrix
+
+First, let's create an empty constraint matrix (essentially a grid of "0" cells that we will fill in as we go along). It's important to fill these cells with "0"s to start because this automatically sets the coefficient of each decision variable to 0 for each constraint. Then for each constraint we can go in and manually change the coefficients of the relevant decision variables so that they match the mathematical formula for that constraint.
+
+```{r}
+# create empty constraint matrix
+
+constraint_matrix <- matrix(0, nrow = (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS + N_PLOTS), ncol = N_VARIABLES) 
+
+```
+
+This might seem like a really long-winded and confusing way to write "48 rows," but this notation will be helpful as we walk step by step through the creation of the constraint matrix below. 
+
+nrow = 
+
+N_PLOTS (6) density row constraints +
+
+2 * N_DENSITY_GROUPS (2 * 3) density column constraints (N_DENSITY_GROUPS constraints for the lower bound of each bin and N_DENSITY_GROUPS constraints for the upper bound of each bin) +
+
+N_PLOTS (6) density bin lower bounds +
+
+N_PLOTS (6) density bin upper bounds +
+
+N_PLOTS (6) ba row constriants +
+
+2 * N_BA_GROUPS (2 * 3) basal area column constraints (N_BA_GROUPS constraints for the lower bound of each bin and N_BA_GROUPS constraints for the upper bound of each bin) +
+
+N_PLOTS (6) ba bin lower bounds +
+
+N_PLOTS (6) ba bin upper bounds
+
+= 48 total rows
+
+### 4.6.3 Rows 1-6
+
+These six rows are dedicated to the six row constraints of the density assignment matrix. These constraints dictate that the sum of each row of the matrix must be equal to 1 (each plot can only be assigned to 1 bin). 
+
+The first row of the constraint matrix represents the first row constraint of the density assignment matrix, which is that plot 1 can only be assigned to 1 bin of the density assignment matrix. We fill out the constraint matrix by putting a "1" in every cell that represents plot 1 being assigned to a particular bin of the density assignment matrix. This is the first three columns, which represent decision variables x1-x3. Refer to *Appendix A, Section 3* to see a list of the order of all the decision variables and what they represent. The sum of x1, x2, and x3 must be equal to one, so our formula for this constraint is "x1 + x2 + x3 = 1". The direction ("=") and right hand side ("1") values will be stored in other vectors after we create the constraint matrix (see section 4.6.13 of this document below). 
+
+The second row represents that plot 2 can only be assigned to 1 bin of the density assignment matrix. We put a "1" in each cell of the constraint matrix that corresponds to plot 2 being assigned to a particular bin of the density assignment matrix. Columns 4-6 represent decision variables x4-x6, so we put a "1" in row 2, cells 4-6. 
+
+Repeat this process for the third through sixth rows. Third row: cells 7-9 are filled in with "1"s. Fourth row: cells 10-12 are filled in with "1"s. Fifth row: cells 13-15 are filled in with "1"s. Sixth row: cells 16-18 are filled in with "1"s. 
+
+The mathematical formulas for and a brief summary of each of these six constraints can be found in *Appendix A, Section 4.1*. 
+
+```{r}
+# Rows 1-6
+# Fill in first 6 rows to represent density assignment matrix row constraints
+
+for (i in 1:N_PLOTS) { # loops through the first six rows of the constraint matrix
+  start_ind <- ((i - 1) * N_DENSITY_GROUPS) + 1 # calculate the column start index for the row we are on
+  stop_ind <- i * N_DENSITY_GROUPS # calculate the column stop index for the row we are on
+  constraint_matrix[i, start_ind:stop_ind] <- 1 # for the row that we are on, fill out the cells in the columns between the start and stop index with 1s
+}
+
+```
+
+### 4.6.4 Rows 7-9
+
+These three rows are dedicated to the three lower bound column constraints of the density assignment matrix. Recall that each bin of the density assignment matrix must be assigned between one and three plots (inclusive). These three lower bound column constraints dictate that there must be greater than or equal to one plot in each column of the density assignment matrix. There is one lower bound constraint per column of the density assignment matrix. 
+
+If you look at the density assignment matrix variables in *Appendix A, Section 3.1*, you'll see that density bin 1 contains variables x1, x4, x7, x10, x13, and x16. Therefore, in row 7 of the constraint matrix (because this is our 7th constraint), we will insert "1"s in the columns that represent those variables (columns 1, 4, 7, 10, 13, and 16). Because the sum of these variables must be greater than or equal to one, our formula for this constraint is "x1 + x4 + x7 + x10 + x13 + x16 >= 1". The formulas for constraints 7-9 can be found in *Appendix A, Section 4.2*. 
+
+Density bin 2 contains variables x2, x5, x8, x11, x14, and x17. In row 8 of the constraint matrix, we will insert "1"s in the columns that represent those variables. 
+
+Density bin 3 contains variables x3, x6, x9, x12, x15, and x18. In row 9 of the constraint matrix, we will insert "1"s in the columns that represent those variables. 
+
+```{r}
+# Rows 7-9
+
+# Fill in next 3 rows to represent density assignment matrix column constraints (lower bound)
+
+for (i in (N_PLOTS + 1):(N_PLOTS + N_DENSITY_GROUPS)) { # loops through lines 7 through 9 of the constraint matrix. N_PLOTS + 1 = 7, N_PLOTS + N_DENSITY_GROUPS = 9.
+  indices <- seq((i-N_PLOTS), (N_DENSITY_GROUPS * N_PLOTS), by = N_DENSITY_GROUPS) # assigns column indices for the current row of the constraint matrix being looped through. Starts at column 1 (for variable x1) and ends at column 18 (for variable x18), counting up by 3. So the first row being looped through (row 7) is assigned x1, + 3 = x4, + 3 = x7, + 3 = x10...
+  constraint_matrix[i, indices] <- 1 # fills out the cells identified as the indices with "1"s
+}
+
+```
+
+### 4.6.5 Rows 10-12
+
+These three rows are dedicated to the 3 lower bound column constraints of the density assignment matrix. Each bin of the density assignment matrix must be assigned between one and three plots (inclusive). Constraints 7-9 ensure that each density bin must be assigned at least one plot. This next batch of constraints, 10-12, dictate that there must be less than or equal to three plots in each column of the density assignment matrix. There is one upper bound constraint per column of the density assignment matrix. 
+
+These column constraints contain identical values to the previous three column constraints. That is, row 7 of the constraint matrix is identical to row 10, row 8 is identical to row 11, and row 9 is identical to row 12. The differences between constraints 7-9 and 10-12 are in the right hand side and direction values. Constraints 7-9 dictate that the sum of these decision variables is greater than or equal to 1, and constraints 10-12 dictate that the sum of these decision variables is less than or equal to three. We assign the right hand side values and equation directions after creating the constraint matrix. You can see the mathematical formulas for constraints 10-12 in *Appendix A, Section 4.3*. 
+
+If you look at the density assignment matrix variables in *Appendix A, Section 3.1*, you'll see that density bin 1 contains variables x1, x4, x7, x10, x13, and x16. This means that in row 10 of the constraint matrix, we will insert "1"s in the columns that represent those variables (columns 1, 4, 7, 10, 13, and 16). 
+
+Density bin 2 contains variables x2, x5, x8, x11, x14, and x17. In row 11 of the constraint matrix, we will insert "1"s in the columns that represent those variables. 
+
+Density bin 3 contains variables x3, x6, x9, x12, x15, and x18. In row 12 of the constraint matrix, we will insert "1"s in the columns that represent those variables.
+
+```{r}
+# Rows 10-12
+
+# Fill in next 3 rows to represent density assignment matrix column constraints (upper bound)
+
+for (i in (N_PLOTS + N_DENSITY_GROUPS + 1):(N_PLOTS + (2 * N_DENSITY_GROUPS))) { # loops through lines 10 through 12 of the constraint matrix. N_PLOTS + N_DENSITY_GROUPS + 1 = 10, N_PLOTS + (2 * N_DENSITY_GROUPS) = 12.
+  indices <- seq((i-(N_PLOTS + N_DENSITY_GROUPS)), (N_DENSITY_GROUPS * N_PLOTS), by = N_DENSITY_GROUPS) # assigns column indices for the current row of the constraint matrix being filled out. Starts at column 1 (for variable x1) and ends at column 18 (for variable x18), counting up by 3.
+  constraint_matrix[i, indices] <- 1 # fills out the cells identified in the indices with "1"s
+}
+
+```
+
+### 4.6.6 Rows 13-18
+
+At this point, we've ensured that each plot only gets assigned to one density bin, and the right number of plots get assigned to each density bin. Now we are going to formulate constraints that dictate how many trees are in each plot (after thinning) based on what density bin they are assigned to. Recall that plots in density bin 1 will have 1-3 trees after thinning, plots in density bin 2 will have 4-6 trees after thinning, and plots in density bin 3 will have 7-9 trees after thinning. 
+
+Constraints 13-18 deal with the lower limit of the number of trees in each density bin. After thinning, plots assigned to density bin 1 will have greater than or equal to one tree, plots in density bin 2 will have greater than or equal to four trees, and plots in density bin 3 will have greater than or equal to seven trees. There is one of these constraints per plot. 
+
+Constraint 13 (row 13 of the constraint matrix) is about plot 1. Note which decision variables deal with which bin of the density assignment matrix plot 1 is assigned to: x1, x2, and x3 (see *Appendix A, Section 3.1* for density assignment matrix variables). If x1 = 1, plot 1 is assigned to bin 1 of the density assignment matrix and must have greater than or equal to one tree after thinning. If x2 = 1, plot 1 is assigned to bin 2 of the density assignment matrix and must have greater than or equal to four trees after thinning. If x3 = 1, plot 1 is assigned to bin 3 of the density assignment matrix and must have greater than or equal to seven trees after thinning. 
+
+In this row of the constraint matrix (row 13), we will multiply decision variables x1, x2, and x3 by these lower limits of the density bins. Therefore, in row 13, we put a "1" in column 1, a "4" in column 2, and a "7" in column 3. Our mathematical formula for this constraint will start with "(1 * x1) + (4 * x2) + (7 * x3)." Because of constraint number 1 (x1 + x2 + x3 = 1), two of these decision variables will be assigned a 0 by the optimization solver and one of these decision variables will be assigned a 1. That means that the first part of our formula ((1 * x1) + (4 * x2) + (7 * x3)) will be equal to the lower limit of the number of trees in the plot after thinning, based on which density bin that plot is assigned to. For example, if plot 1 is assigned to density bin 1, x1 = 1, x2 = 0, and x3 = 0, and "(1 * x1) + (4 * x2) + (7 * x3)" becomes (1 * 1) + (4 * 0) + (7 * 0) = 1. 
+
+Constraint 13 also needs to take into account which trees are in plot 1 and how many of them need to be removed to meet the density bin limit. For every removable tree in plot 1, we will put a "-1" in those cells of constraint matrix row 13. You can see which decision variables are associated with removable trees in each plot in *Appendix A, Section 3.3*. Variables x37 through x43 represent removable trees in plot 1. This means that we will put a "-1" in row 13, columns 37, 38, 39, 40, 41, 42, and 43. This is represented in our constraint formula as "-x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43." If the optimization solver removes a tree from the plot, that -1 will be cancelled out because that decision variable will be equal to 0. If the optimization solver keeps a tree in the plot, that -1 will be subtracted from the coefficient in the first part of the formula for this constraint (either 1, 4, or 7). For example, if plot 1 is assigned to density bin 1, we know that the first part of the mathematical formula for the constraint ((1 * x1) + (4 * x2) + (7 * x3)) equals one. This means that the formula simplifies to "1 -x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43". If the optimization solver chooses to keep the trees represented by decision variables x37 and x43, and chooses to remove all the other trees, the formula becomes "1 + (-1 * 1) + (-1 * 0) + (-1 * 0) + (-1 * 0) + (-1 * 0) + (-1 * 0) + (-1 * 1)". This simplifies to 1 - 1 + 0 + 0 + 0 + 0 + 0 - 1 = -1. 
+
+The final thing we have to account for in this constraint is the trees in plot 1 that are NOT removable, because those count towards the final tree count after thinning. If you open the data.frame "plot_stats," you can see that plots 1 has 0 non-removable trees. This means that this constraint formula will be finished out with "less than or equal to zero." 
+
+This finalized constraint formula ((1 * x1) + (4 * x2) + (7 * x3) -x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43 <= 0) is a bit different than our original language for the constraint ("plot 1 must have greater than or equal to (1, 4, or 7) trees") and represents a slight re-arrangement of variables. If we translate our original language into a mathematical formula, it would be "x37 + x38 + x39 + x40 + x41 + x42 + x43 + (number of non-removable trees in plot 1) >= (1 * x1) + (4 * x2) + (7 * x3)". By flipping the inequality, we get (1 * x1) + (4 * x2) + (7 * x3) <= x37 + x38 + x39 + x40 + x41 + x42 + x43 + (number of non-removable trees in plot 1). By subtracting the removable trees from both sides of the equation, we get (1 * x1) + (4 * x2) + (7 * x3) -x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43 <= number of non-removable trees in plot 1 (which is 0). 
+
+Examining how this equation works, let's say that plot 1 is assigned to density bin 1, and thus must contain greater than or equal to 1 tree after thinning. That means that x1 = 1, x2 = 0, and x3 = 0. So the first part of our formula (1 * x1) + (4 * x2) + (7 * x3) becomes (1 * 1) + (4 * 0) + (7 * 0) = 1. We are left with 1 + -x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43 <= 0, or 1 <= x37 + x38 + x39 + x40 + x41 + x42 + x43. Recall that keeping a tree makes its corresponding decision variable equal to one and removing a tree means its decision variable is equal to zero. This means that we need to keep at least one of the non-removable trees in plot 1 to satisfy the inequality (although we can keep more than one of the non-removable trees). 
+
+We don't have to worry about the "<= 0" part of the formula in the constraint matrix: these values will be added to the vectors for formula direction and right hand side values after we finish filling out the constraint matrix (in section 4.6.13 of this document). You can see the entire mathematical formulae for constraints 13-18 in *Appendix A, Section 4.4*. 
+
+Constraints 14-18 repeat this process for plots 2-6. 
+
+Constraint 14 deals with the lower limit of the density bins in plot 2. Decision variables x4, x5, and x6 regard which bin of the density assignment matrix plot 2 is assigned to. Removable tree decision variables associated with plot 2 are x44 through x49. Plot 2 has 0 non-removable trees. So the constraint formula is (1 * x4) + (4 * x5) + (7 * x6) + -x44 + -x45 + -x46 + -x47 + -x48 + -x49 <= 0. In row 14 of the constraint matrix, we fill in column 4 with "1" column 5 with "4", column 6 with "7", and columns 44 through 49 with "-1". 
+
+Constraint 15 deals with the lower limit of the density bins in plot 3. Decision variables x7, x8, and x9 regard which bin of the density assignment matrix plot 3 is assigned to. Removable tree decision variables associated with plot 3 are x50 through x54. Plot 3 has 2 non-removable trees. The constraint formula is (1 * x7) + (4 * x8) + (7 * x9) + -x50 + -x51 + -x52 + -x53 + -x54 <= 2. In row 15 of the constraint matrix, we fill in column 7 with "1", column 8 with "4", column 9 with "7", and columns 50 through 54 with "-1". 
+
+Constraint 16 deals with the lower limit of the density bins in plot 4. Decision variables x10, x11, and x12 regard which bin of the density assignment matrix plot 4 is assigned to. Removable tree decision variables associated with plot 4 are x55 through x56. Plot 4 has 1 non-removable tree. The constraint formula is (1 * x10) + (4 * x11) + (7 * x12) + -x55 + -x56 <= 1. In row 16 of the constraint matrix, we fill in column 10 with "1", column 11 with "4", column 12 with "7", and columns 55 and 56 with "-1". 
+
+Constraint 17 deals with the lower limit of the density bins in plot 5. Decision variables x13, x14, and x15 regard which bin of the density assignment matrix plot 5 is assigned to. Removable tree decision variables associated with plot 5 are x57 through x63. Plot 5 has 1 non-removable tree. The constraint formula is (1 * x13) + (4 * x14) + (7 * x15) + -x57 + -x58 + -x59 + -x60 + -x61 + -x62 + -x63 <= 1. In row 17 of the constraint matrix, we fill in column 13 with "1", column 14 with "4", column 15 with "7", and columns 57 through 63 with "-1". 
+
+Constraint 18 deals with the lower limit of the density bins in plot 6. Decision variables x16, x17, and x18 regard which bin of the density assignment matrix plot 6 is assigned to. The only removable tree decision variables associated with plot 6 is x64. Plot 6 has 1 non-removable tree. The constraint formula is (1 * x16) + (4 * x17) + (7 * x18) + -x64 <= 1. In row 18 of the constraint matrix, we fill in column 16 with "1", column 17 with "4", column 18 with "7", and column 64 with "-1". 
+
+```{r}
+# Rows 13-18
+
+# Fill in the next 6 rows with the lower limit of the number of trees in each bin of the density assignment matrix. This will be accomplished with two for loops. The first for loop will address the density assignment matrix decision variables. The second for loop will address the tree decision variables.
+
+# Loop 1: density assignment matrix decision variables associated with each plot (these determine which plots fall into which bins of the density assignment matrix)
+
+for (i in (N_PLOTS + (2 * N_DENSITY_GROUPS) + 1):(N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS)) { # loops through lines 13 through 18 of the constraint matrix. N_PLOTS + (2 * N_DENSITY_GROUPS) + 1 = 13, N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS = 18.
+  start_col <- ((i - (N_PLOTS + (2* N_DENSITY_GROUPS) + 1)) * N_DENSITY_GROUPS) + 1 # for the row that the loop is currently working on, assigns a starting column for the variables associated with the density assignment matrix. plot 1 starts at column 1 (x1), plot 2 starts at column 4 (x4), plot 3 starts at column 7 (x7), etc.
+  constraint_matrix[i, start_col:(start_col + (N_DENSITY_GROUPS - 1))] <- target_density_distribution_lower # for the row that the loop is currently working on, assigns the lower bound of each density bin to the column associated with that plot/bin combination. for example, in plot 1 (row 13), the lower bound of density bin 1 is assigned to column 1 (decision variable x1), the lower bound of density bin 2 is assigned to column 2 (decision variable x2), and the lower bound of density bin 3 is assigned to column 3 (decision variable x3). 
+}
+
+# Loop 2: tree decision variables associated with each plot (these determine which trees get kept and which trees get cut down in our thinning simulation)
+
+start_col <- (N_DENSITY_GROUPS * N_PLOTS) + (N_BA_GROUPS * N_PLOTS) + 1 # Update the starting column to begin at the tree decision variables. Recall that the first N_DENSITY_GROUPS * N_PLOTS = 18 decision variables are associated with the density assignment matrix and the next N_BA_GROUPS * N_PLOTS = 18 decision variables are associated with the basal area assignment matrix. One column after that is where the individual tree assignment variables begin. 
+
+for (i in 1:N_PLOTS) { # loops through plots 1 through 6
+  num_trees <- nrow(get(paste0("plot", i))) # finds the number of trees in plot i based on the data.frames for the removable trees in each plot we created earlier (these are the data.frames named "plot1", "plot2", etc.)
+  constraint_matrix[(N_PLOTS + (2 * N_DENSITY_GROUPS)) + i, start_col:(start_col + num_trees - 1)] <- -1  # assign -1s to all the trees decision variables in plot i. This line of code finds the right row of the constraint matrix to put those "-1"s in by skipping over rows 1-6 and then rows 7-12, so plot 1's tree decision variable coefficients are put in row 13, plot 2's tree decision variable coefficients are put in row 14, etc.
+  start_col <- start_col + num_trees  # update the starting column for the next plot
+}
+
+```
+
+### 4.6.7 Rows 19-24
+
+Constraints 19-24 deal with the upper limit of the number of trees in each density bin. Plots in density bin 1 will have less than or equal to three trees, plots in density bin 2 will have less than or equal to six trees, and plots in density bin 3 will have less than or equal to nine trees. Each plot gets its own upper limit constraint. This batch of constraints will be constructed very similarly to constraints 13-18. 
+
+Constraint 19 (row 19 of the constraint matrix) is about plot 1. Note which decision variables deal with which bin of the density assignment matrix plot 1 is assigned to: x1, x2, and x3 (see *Appendix A, Section 3.1* for density assignment matrix variables). If x1 = 1, plot 1 is assigned to bin 1 of the density assignment matrix and must have less than or equal to three trees after thinning. If x2 = 1, plot 1 is assigned to bin 2 of the density assignment matrix and must have less than or equal to six trees after thinning. If x3 = 1, plot 1 is assigned to bin 3 of the density assignment matrix and must have less than or equal to nine trees after thinning. In this row of the constraint matrix (row 19), we will multiply decision variables x1, x2, and x3 by the upper limits of the density bins. So in row 19, we put a "3" in column 1, a "6" in column 2, and a "9" in column 3. Our formula for this constraint will thus start with "(3 * x1) + (6 * x2) + (9 * x3)." Because of constraint number 1 (x1 + x2 + x3 = 1), two of these decision variables will be assigned a 0 by the optimization solver and one of these decision variables will be assigned a 1. That means that the first part of our formula ((3 * x1) + (6 * x2) + (9 * x3)) will equal the upper limit of the number of trees in the plot after thinning, based on which density bin that plot is assigned to. For example, if plot 1 is assigned to density bin 1, x1 = 1, x2 = 0, and x3 = 0, and (3 * x1) + (6 * x2) + (9 * x3) becomes (3 * 1) + (4 * 0) + (7 * 0) = 3. 
+
+Constraint 19 also needs to take into account which trees are in plot 1 and how many of them need to be kept and removed to meet the density bin limit. For every removable tree in plot 1, we will put a "-1" in those cells of constraint matrix row 19. You can see which decision variables are associated with removable trees in each plot in *Appendix A, Section 3.3*. Variables x37 through x43 represent removable trees in plot 1. This means that we will put a "-1" in row 19, columns 37, 38, 39, 40, 41, 42, and 43 of the constraint matrix. This is represented in our constraint formula as "-x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43." If the optimization solver removes a tree from the plot, that decision variable will be equal to 0 and the -1 associated with that decision variable will be cancelled out. If the optimization solver keeps a tree in the plot, that decision variable will be equal to 1 and the resulting -1 will be subtracted from the coefficient in the first part of the formula for this constraint (either 3, 6, or 9). With both the density assignment matrix decision variables and the tree decision variables, the mathematical formula for this constraint becomes "(3 * x1) + (6 * x2) + (9 * x3) + -x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43". 
+
+The final thing we have to account for in this constraint is the number of trees in each plot that are NOT removable, because they apply to the final tree count after thinning. If you open the data.frame "plot_stats," you can see that plots 1 has 0 non-removable trees. This means that this constraint formula will be finished out with "greater than or equal to zero." We don't have to worry about the ">= 0" in the constraint matrix: these values will be added to the vectors for formula direction and right hand side values after we finish filling out the constraint matrix. 
+
+For example, let's say that plot 1 is assigned to density bin 1, and must contain less than or equal to 3 trees after thinning. That means that x1 = 1, x2 = 0, and x3 = 0. So the first part of our formula (3 * x1) + (6 * x2) + (9 * x3) becomes (3 * 1) + (6 * 0) + (9 * 0) = 3. We are left with 3 + -x37 + -x38 + -x39 + -x40 + -x41 + -x42 + -x43 >= 0. This means the optimization solver must choose to keep either one, two, or three trees (represented by decision variables x37 through x43) in order for the left side of the equation to be greater than zero. That means one, two, or three of the tree decision variables must be equal to one. For all of the trees that are not being kept, those decision variables that must be equal to zero. 
+
+You can see the entire formulae for constraints 19-24 written in mathematical notation in *Appendix A, Section 4.4*. 
+
+Constraints 20-24 repeat this process for plots 2-6. 
+
+Constraint 20 deals with the upper limit of the density bins in plot 2. Decision variables x4, x5, and x6 regard which bin of the density assignment matrix plot 2 is assigned to. Removable tree decision variables associated with plot 2 are x44 through x49. Plot 2 has 0 non-removable trees. So the constraint formula is (3 * x4) + (6 * x5) + (9 * x6) + -x44 + -x45 + -x46 + -x47 + -x48 + -x49 >= 0. In row 20 of the constraint matrix, we fill in column 4 with "1" column 5 with "4", column 6 with "7", and columns 44 through 49 with "-1". 
+
+Constraint 21 deals with the upper limit of the density bins in plot 3. Decision variables x7, x8, and x9 regard which bin of the density assignment matrix plot 3 is assigned to. Removable tree decision variables associated with plot 3 are x50 through x54. Plot 3 has 2 non-removable trees. The constraint formula is (3 * x7) + (6 * x8) + (9 * x9) + -x50 + -x51 + -x52 + -x53 + -x54 >= 2. In row 21 of the constraint matrix, we fill in column 7 with "1", column 8 with "4", column 9 with "7", and columns 50 through 54 with "-1". 
+
+Constraint 22 deals with the upper limit of the density bins in plot 4. Decision variables x10, x11, and x12 regard which bin of the density assignment matrix plot 4 is assigned to. Removable tree decision variables associated with plot 4 are x55 through x56. Plot 4 has 1 non-removable tree. The constraint formula is (3 * x10) + (6 * x11) + (9 * x12) + -x55 + -x56 >= 1. In row 16 of the constraint matrix, we fill in column 10 with "1", column 11 with "4", column 12 with "7", and columns 55 and 56 with "-1". 
+
+Constraint 23 deals with the upper limit of the density bins in plot 5. Decision variables x13, x14, and x15 regard which bin of the density assignment matrix plot 5 is assigned to. Removable tree decision variables associated with plot 5 are x57 through x63. Plot 5 has 1 non-removable tree. The constraint formula is (3 * x13) + (6 * x14) + (9 * x15) + -x57 + -x58 + -x59 + -x60 + -x61 + -x62 + -x63 >= 1. In row 23 of the constraint matrix, we fill in column 13 with "1", column 14 with "4", column 15 with "7", and columns 57 through 63 with "-1". 
+
+Constraint 24 deals with the upper limit of the density bins in plot 6. Decision variables x16, x17, and x18 regard which bin of the density assignment matrix plot 6 is assigned to. The only removable tree decision variables associated with plot 6 is x64. Plot 6 has 1 non-removable tree. The constraint formula is (3 * x16) + (6 * x17) + (9 * x18) + -x64 >= 1. In row 18 of the constraint matrix, we fill in column 16 with "1", column 17 with "4", column 18 with "7", and column 64 with "-1". 
+
+```{r}
+# Rows 19-24
+
+# Fill in the next 6 rows with the upper of the number of trees in each bin of the density assignment matrix. This will be accomplished with two for loops. The first for loop will address the density assignment matrix decision variables. The second for loop will address the tree decision variables.
+
+# Loop 1: density assignment matrix decision variables associated with each plot (these determine which plots fall into which bins of the density assignment matrix)
+
+for (i in (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + 1):(N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS)) { # loops through lines 19 through 24 of the constraint matrix. N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + 1 = 19, N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS = 24.
+  start_col <- ((i - (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + 1)) * N_DENSITY_GROUPS) + 1 # for the row that the loop is currently working on, assigns a starting column for the variables associated with the density assignment matrix. plot 1 starts at column 1 (x1), plot 2 starts at column 4 (x4), plot 3 starts at column 7 (x7), etc.
+  constraint_matrix[i, start_col:(start_col + (N_DENSITY_GROUPS - 1))] <- target_density_distribution_upper # for the row that the loop is currently working on, assigns the upper bound of each density bin to the column associated with that plot/bin combination. for example, in plot 1 (row 13), the upper bound of density bin 1 is assigned to column 1 (decision variable x1), the upper bound of density bin 2 is assigned to column 2 (decision variable x2), and the upper bound of density bin 3 is assigned to column 3 (decision variable x3). 
+}
+
+# Loop 2: tree decision variables associated with each plot (these determine which trees get kept and which trees get cut down in our thinning simulation)
+
+start_col <- (N_DENSITY_GROUPS * N_PLOTS) + (N_BA_GROUPS * N_PLOTS) + 1 # Update the starting column to begin at the tree decision variables. Recall that the first N_DENSITY_GROUPS * N_PLOTS = 18 decision variables are associated with the density assignment matrix and the next N_BA_GROUPS * N_PLOTS = 18 decision variables are associated with the basal area assignment matrix. One column after that is where the individual tree assignment variables begin. 
+
+for (i in 1:N_PLOTS) { # loops through plots 1 through 6
+  num_trees <- nrow(get(paste0("plot", i))) # finds the number of trees in plot i based on the data.frames for the removable trees in each plot we created earlier (these are the data.frames named "plot1", "plot2", etc.)
+  constraint_matrix[(N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS) + i, start_col:(start_col + num_trees - 1)] <- -1  # assign -1s to all the trees decision variables in plot i. This line of code finds the right row of the constraint matrix to put those "-1"s in by skipping over rows 1-6 and then rows 7-12, so plot 1's tree decision variable coefficients are put in row 13, plot 2's tree decision variable coefficients are put in row 14, etc.
+  start_col <- start_col + num_trees  # update the starting column for the next plot
+}
+
+```
+
+### 4.6.8 Rows 25-30
+
+These six rows are dedicated to the six row constraints of the basal area assignment matrix. These constraints dictate that the sum of each row of the matrix must be equal to one (each plot can only be assigned to one bin). Constraints 25-30 are analogous to constraints 1-6, except the former regard the basal area assignment matrix and the latter regard the density assignment matrix. 
+
+Row 25 of the constraint matrix represents the first row constraint of the basal area assignment matrix, which is that plot 1 can only be assigned to one bin of the basal area assignment matrix. We fill out the constraint matrix by putting a "1" in every cell that represents plot 1 being assigned to a particular bin of the basal area assignment matrix. Looking at *Appendix A, Section 3.2*, we can see that decision variables x19, x20, and x21 represent plot 1 being assigned to the three bins of the basal area assignment matrix. This means that in row 25, we put "1"s in columns 19, 20, and 21. The mathematical formula for this constraint is x19 + x20 + x21 = 1. The mathematical formulae for constraints 25-30 are in *Appendix A, Section 4.6*. 
+
+Row 26 represents that plot 2 can only be assigned to one bin of the basal area assignment matrix. We put a "1" in each cell of the constraint matrix that corresponds to plot 2 being assigned to a particular bin of the basal area assignment matrix. Looking at the table of basal area assignment matrix decision variables, variables x22, x23, and x24 are associated with plot 2. This means that we fill in row 26 with "1"s in columns 22-24. The mathematical formula for this constraint is x22 + x23 + x24 = 1. 
+
+Repeat this process for rows 27-30. Row 27 (plot 3 can only be assigned to one bin of the basal area assignment matrix): columns 25-27 are filled in with "1"s. Row 28 (plot 4 can only be assigned to one bin of the basal area assignment matrix): columns 28-30 are filled in with "1"s. Row 29 (plot 5 can only be assigned to one bin of the basal area assignment matrix): columns 31-33 are filled in with "1"s. Row 30 (plot 6 can only be assigned to one bin of the basal area assignment matrix): columns 34-36 are filled in with "1"s. 
+
+```{r}
+# Rows 25-30
+
+# Fill in next 6 rows to represent basal area assignment matrix row constraints
+
+start_col <- (N_PLOTS * N_DENSITY_GROUPS) + 1 # Define the start column for the basal area assignment matrix decision variables. Recall that the first 18 decision variables in this problem are associated with the density assignment matrix. The basal area assignment matrix decision variables are x19-x36. (N_PLOTS * N_DENSITY_GROUPS) + 1 = 19. 
+
+for (i in 1:N_PLOTS) { # loops through plots 1 through 6
+  row <- (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + i) # defines the row of the constraint matrix that we are currently working on
+  constraint_matrix[row, start_col:(start_col + N_BA_GROUPS - 1)] <- 1 # after we find the correct row, we fill in the start column and the following two columns with "1"s
+  start_col <- start_col + N_BA_GROUPS # Update the starting column for the next loop. Each iteration of the loop deals with 3 columns, because there are 3 bins in the basal area assignment matrix.
+}
+
+```
+
+### 4.6.9 Rows 31-33
+
+These three rows are dedicated to the three lower bound column constraints of the basal assignment matrix. Recall that each bin of the basal assignment matrix must be assigned between one and three plots (inclusive). Constraints 31-33 dictate that there must be greater than or equal to one plot in each column of the basal area assignment matrix. Each bin of the basal area assignment matrix has its own constraint. 
+
+If you look at the basal area assignment matrix variables in *Appendix A, Section 3.2*, you'll see that basal area bin 1 contains variables x19, x22, x25, x28, x31, and x34. Because the sum of these variables must be greater than or equal to one (that is, at least one plot must be assigned to this bin), the mathematical formula for this constraint is x19 + x22 + x25 + x28 + x31 + x34 >= 1. This means that in row 31 of the constraint matrix, we will insert "1"s in the columns that represent those variables (columns 19, 22, 25, 28, 31, and 34).  The formulae for constraints 31-33 are in *Appendix A, Section 4.7*. 
+
+Basal area bin 2 contains variables x20, x23, x26, x29, x32, and x35. In row 32 of the constraint matrix, we will insert "1"s in the columns that represent those variables. 
+
+Basal area bin 3 contains variables x21, x24, x27, x30, x33, and x36. In row 33 of the constraint matrix, we will insert "1"s in the columns that represent those variables.
+
+```{r}
+# Rows 31-33
+
+# Fill in next 3 rows to represent basal area assignment matrix column constraints (lower bound)
+
+for (i in (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + 1):(N_PLOTS + (2* N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + N_BA_GROUPS)) { # loops through lines 31 through 33 of the constraint matrix. N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + 1 = 31, N_PLOTS + (2* N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + N_BA_GROUPS = 33. 
+  indices <- seq((i-(2 * N_PLOTS)), ((i-(2 * N_PLOTS)) + (N_BA_GROUPS * N_PLOTS)), by = N_BA_GROUPS) # assigns column indices for each row of the constraint matrix that this loop fills out. Starts at column 19 (for variable x19, the first decision variable in the basal area assignment matrix) and ends at column 36 (for variable x36, the last decision variable in the basal area assignment matrix), counting up by 3 (because every third variable in the set belongs to the same bin of the basal area assignment matrix)
+  constraint_matrix[i, indices] <- 1 # for the current row of the matrix being looped through, fills in the indices identified in the previous line with "1"s
+}
+
+```
+
+### 4.6.10 Rows 34-36
+
+These three rows are dedicated to the three upper bound column constraints of the basal area assignment matrix. Each bin of the basal area assignment matrix must be assigned between one and three plots (inclusive). These three constraints dictate that there must be less than or equal to three plots in each column of the basal area assignment matrix. Each bin of the basal area assignment matrix will get its own constraint.
+
+These column constraints contain identical values to the previous three column constraints. The differences between constraints 31-33 and 34-36 are in the right hand side and direction values. Constraints 31-33 require that the sum of these decision variables is greater than or equal to 1, and constraints 34-36 require that the sum of these decision variables is less than or equal to three. We assign the right hand side values and equation directions to their own vectors after creating the constraint matrix.
+
+If you look at the basal area assignment matrix variables in *Appendix A, Section 3.2*, you'll see that basal area bin 1 contains variables x19, x22, x25, x28, x31, and x34. This means that in row 34 of the constraint matrix, we will insert "1"s in the columns that represent those variables (columns 19, 22, 25, 28, 31, and 34). The formula for this constraint is x19 + x22 + x25 + x28 + x31 + x34 <= 3. 
+
+Basal area bin 2 contains variables x20, x23, x26, x29, x32, and x35. In row 35 of the constraint matrix, we will insert "1"s in the columns that represent those variables. 
+
+Basal area bin 3 contains variables x21, x24, x27, x30, x33, and x36. In row 36 of the constraint matrix, we will insert "1"s in the columns that represent those variables.
+
+The mathematical formulae for constraints 34-36 are in *Appendix A, Section 4.8*. 
+
+```{r}
+# Rows 34-36
+
+# Fill in next 3 rows to represent basal area assignment matrix column constraints (upper bound)
+
+for (i in (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + N_BA_GROUPS + 1):(N_PLOTS + (2* N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS))) { # loops through lines 31 through 33 of the constraint matrix. N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + + N_BA_GROUPS + 1 = 34, N_PLOTS + (2* N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) = 36.
+  indices <- seq((i-((2 * N_PLOTS) + N_BA_GROUPS)), ((i-((2 * N_PLOTS) + N_BA_GROUPS)) + (N_BA_GROUPS * N_PLOTS)), by = N_BA_GROUPS) # assigns column indices for each row of the constraint matrix that this loop fills out. Starts at column 19 (for variable x19, the first decision variable in the basal area assignment matrix) and ends at column 36 (for variable x36), counting up by 3 (because every third variable in the set belongs to the same bin of the basal area assignment matrix)
+  constraint_matrix[i, indices] <- 1 # for the current row of the loop, fills out the indices identified above with "1"s
+}
+
+```
+
+### 4.6.11 Rows 37-42
+
+Now we are going to formulate constraints that mandate what the post-thinning total basal area is in each plot (that is, the sum of the basal area of all the individual trees in each plot), based on what basal area bin the plot are assigned to. 
+
+Recall that plots in basal area bin 1 will have 0.2 to 5 m^2 total basal area after thinning, plots in basal area bin 2 will have 5.1 to 10 m^2 total basal area after thinning, and plots in basal area bin 3 will have 10.1 to 15 m^2 total basal area after thinning. 
+
+Constraints 37-42 deal with the lower limit of the total basal area in each basal area bin. Plots in basal area bin 1 will have greater than or equal to 0.2 m^2 basal area, plots in basal area bin 2 will have greater than or equal to 5.1 m^2 basal area, and plots in basal area bin 3 will have greater than or equal to 10.1 m^2 basal area. There is one of these constraints per plot.
+
+Constraint 37 (row 37 of the constraint matrix) regards plot 1. Note which decision variables deal with which bin of the basal area assignment matrix plot 1 is assigned to: x19, x20, and x21 (see *Appendix A, Section 3.2* for the basal area assignment matrix variables). If x19 = 1, plot 1 is assigned to bin 1 of the basal area assignment matrix and must have greater than or equal to 0.2 m^2 total basal area after thinning. If x20 = 1, plot 1 is assigned to bin 2 of the basal area assignment matrix and must have greater than or equal to 5.1 m^2 total basal area after thinning. If x21 = 1, plot 1 is assigned to bin 3 of the basal area assignment matrix and must have greater than or equal to 10.1 m^2 total basal area after thinning. 
+
+In this row of the constraint matrix (row 37), we will multiply decision variables x19, x20, and x21 by these lower limits of the basal area bins. Thus, in row 37, we put a "0.2" in column 19, a "5.1" in column 20, and a "10.1" in column 21. Our formula for this constraint starts with "(0.2 * x19) + (5.1 * x20) + (10.1 * x21)". Because of constraint number 25 (x19 + x 20 + x21 = 1), two of these decision variables will be assigned a 0 by the optimization solver and one of these decision variables will be assigned a 1. That means that the first part of our formula ((0.2 * x19) + (5.1 * x20) + (10.1 * x21)) will be equal to the lower limit of the post-thinning total basal area, based on which basal area bin that plot is assigned to. For example, if plot 1 is assigned to basal area bin 1, x19 = 1, x20 = 0, and x21 = 0, and (0.2 * x19) + (5.1 * x20) + (10.1 * x21) becomes (0.2 * 1) + (5.1 * 0) + (10.1 * 0) = 0.2. 
+
+Constraint 37 also needs to take into account which trees are in plot 1, the sizes of those trees, and which ones/how many of them need to be removed to meet the basal area bin limit. For every removable tree in plot 1, we will put a "-1" multiplied by the particular basal area of the tree in question in those cells of constraint matrix row 37. You can see which decision variables are associated with removable trees in each plot, and the basal area of each of those trees, in *Appendix A, Section 3.3*.
+
+Variables x37 through x43 represent removable trees in plot 1. This means that we will put a "-1" multiplied by the basal area of each individual tree in row 37, columns 37, 38, 39, 40, 41, 42, and 43 of the constraint matrix. 
+
+This is represented in our constraint formula as (-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43). If the optimization solver removes a tree from the plot, the negative basal area coefficient associated with that tree will be cancelled out because that decision variable will be equal to 0. If the optimization solver keeps a tree in the plot, that negative basal area will be subtracted from the coefficient in the first part of the formula for this constraint (either 0.2, 5.1, or 10.1). 
+
+For example, if plot 1 is assigned to basal area bin 1, we know that the first part of the mathematical formula for this constraint ((0.2 * x19) + (5.1 * x20) + (10.1 * x21)) equals 0.2. The entire left hand side of the formula for the constraint thus simplifies to 0.2 + (-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43). If the optimization solver chooses to keep the trees represented by decision variables x37 and x43, and chooses to remove all the other trees, the formula becomes 0.2 + (-0.755306 * 1) + (-1.369058 * 0) + (-1.29647 * 0) + (-0.346621 * 0) + (-1.930411 * 0) + (-1.878314 * 0) + (-0.368072 * 1). This simplifies to 0.2 - 0.755306 + 0 + 0 + 0 + 0 + 0 - 0.368072 = -0.923378. Note that this is not necessarily how the optimization solver will solve the problem, it's just an example of one way the formula for this constraint might be satisfied. 
+
+The final thing we have to account for in this constraint is the trees in plot 1 that are NOT removable, because those count towards the final basal area sum after thinning. If you open the data.frame "plot_stats," you can see that plots 1 has 0 non-removable trees, which means there is 0 non-removable basal area in this plot. This means that this constraint formula will be finished out with "less than or equal to zero." 
+
+This finalized constraint formula ((0.2 * x19) + (5.1 * x20) + (10.1 * x21) + (-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43) <= 0) is a bit different than our original language for the constraint ("plot 1 must have less than or equal to (0.2, 5.1, or 10.1) total basal area after thinning") and represents a slight re-arrangement of variables. If we translate our original language into a mathematical formula, it would be "(0.755306 * x37) + (1.369058 * x38) + (1.29647 * x39) + (0.346621 * x40) + (1.930411 * x41) + (1.878314 * x42) + (0.368072 * x43) + (total basal area of non-removable trees in plot 1) >= (0.2 * x19) + (5.1 * x20) + (10.1 * x21)". By flipping the inequality, we get (0.2 * x19) + (5.1 * x20) + (10.1 * x21) <= (0.755306 * x37) + (1.369058 * x38) + (1.29647 * x39) + (0.346621 * x40) + (1.930411 * x41) + (1.878314 * x42) + (0.368072 * x43) + (total basal area of non-removable trees in plot 1). By subtracting the removable trees multiplied by their individual basal areas from both sides of the equation, we get (0.2 * x19) + (5.1 * x20) + (10.1 * x21) + (-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43) <= total basal area of non-removable trees in plot 1 (which is 0). 
+
+Examining how this equation works, let's say that plot 1 is assigned to basal area bin 1, and thus must contain greater than or equal to 0.2 square meters of basal area after thinning. That means that x19 = 1, x20 = 0, and x21 = 0. So the first part of our formula (0.2 * x19) + (5.1 * x20) + (10.1 * x21) becomes (0.2 * 1) + (5.1 * 0) + (10.1 * 0) = 0.2. We are left with 0.2 + + (-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43) <= 0, or 0.2 <= (0.755306 * x37) + (1.369058 * x38) + (1.29647 * x39) + (0.346621 * x40) + (1.930411 * x41) + (1.878314 * x42) + (0.368072 * x43). Recall that keeping a tree makes its corresponding decision variable equal to one and removing a tree means its decision variable is equal to zero. This means that we need to keep at least one of the non-removable trees in plot 1 to satisfy the inequality (although we can keep more than one of the non-removable trees). Because all of the trees in this plot have a basal area greater than 0.2, keeping any one of them (it doesn't matter which one) or more than one (it doesn't matter which ones) will satisfy the equation.
+
+We don't have to worry about the "<= 0" part of the formula in the constraint matrix: these values will be added to the vectors for formula direction and right hand side values after we finish filling out the constraint matrix (in section 4.6.13 of this document). You can see the entire mathematical formulae for constraints 37-42 in *Appendix A, Section 4.9*. 
+
+Constraints 38-42 repeat this process for plots 2-6. 
+
+Constraint 38 deals with the lower limit of the basal area bins in plot 2. Decision variables x22, x23, and x24 regard which bin of the basal area assignment matrix plot 2 is assigned to. Removable tree decision variables associated with plot 2 are x44 through x49. Plot 2 has 0 non-removable basal area. So the constraint formula is (0.2 * x22) + (5.1 * x23) + (10.1 * x24) + (-1.04935 * x44) + (-1.112922 * x45) + (-1.166098 * x46) + (-0.736422 * x47) + (-0.884034 * x48) + (-0.705924 * x49) <= 0. In row 38 of the constraint matrix, we fill in column 22 with "0.2", column 23 with "5.1", column 24 with "10.1", and columns 44 through 49 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 39 deals with the lower limit of the basal area bins in plot 3. Decision variables x25, x26, and x27 regard which bin of the basal area assignment matrix plot 3 is assigned to. Removable tree decision variables associated with plot 3 are x50 through x54. Plot 3 has 5.824184 square meters of non-removable basal area. The constraint formula is (0.2 * x25) + (5.1 * x26) + (10.1 * x27) + (-1.798609 * x50) + (-1.002511 * x51) + (-0.621592 * x52) + (-2.007961 * x53) + (-1.285411 * x54) <= 5.824184. In row 39 of the constraint matrix, we fill in column 25 with "0.2", column 26 with "5.1", column 27 with "10.1", and columns 50 through 54 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 40 deals with the lower limit of the basal area bins in plot 4. Decision variables x28, x29, and x30 regard which bin of the basal area assignment matrix plot 4 is assigned to. Removable tree decision variables associated with plot 4 are x55 through x56. Plot 4 has 2.645363 square meters of non-removable basal area. The constraint formula is (0.2 * x28) + (5.1 * x29) + (10.1 * x30) + (-1.248226 * x55) + (-0.821385 * x56) <= 2.645363. In row 40 of the constraint matrix, we fill in column 28 with "0.2", column 29 with "5.1", column 30 with "10.1", and columns 55 and 56 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 41 deals with the lower limit of the basal area bins in plot 5. Decision variables x31, x32, and x33 regard which bin of the basal area assignment matrix plot 5 is assigned to. Removable tree decision variables associated with plot 5 are x57 through x63. Plot 5 has 2.630840 square meters of non-removable basal area. The constraint formula is (0.2 * x31) + (5.1 * x32) + (10.1 * x33) + (-2.426398 * x57) + (-1.799726 * x58) + (-2.079124 * x59) + (-1.075571 * x60) + (-1.79419 * x61) + (-0.81289 * x62) + (-1.610356 * x63) <= 2.630840. In row 41 of the constraint matrix, we fill in column 31 with "0.2", column 32 with "5.1", column 33 with "10.1", and columns 57 through 63 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 42 deals with the lower limit of the basal area bins in plot 6. Decision variables x34, x35, and x36 regard which bin of the basal area assignment matrix plot 6 is assigned to. The only removable tree decision variables associated with plot 6 is x64. Plot 6 has 2.976763 square meters of non-removable basal area. The constraint formula is (0.2 * x34) + (5.1 * x35) + (10.1 * x36) + (-1.491417 * x64) <= 2.976763. In row 42 of the constraint matrix, we fill in column 34 with "0.2", column 35 with "5.1", column 36 with "10.1", and column 64 with "-1" multiplied by the basal area for that tree. 
+
+```{r}
+# Rows 37-42
+
+# Fill in the next 6 rows with the lower limit of the total basal area in each bin of the basal area assignment matrix. This will be accomplished with two for loops. The first for loop will address the basal area assignment matrix decision variables. The second for loop will address the tree decision variables.
+
+# Loop 1: basal area assignment matrix decision variables associated with each plot (these determine which plots fall into which bins of the basal area assignment matrix)
+
+for (i in (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + 1):(N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS)) { # loops through lines 37 through 42 of the constraint matrix. N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + 1 = 37, N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS = 42.
+  start_col <- ((i - (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + 1)) * N_BA_GROUPS) + 1 # for the row that the loop is currently working on, assigns a starting column for the variables associated with the basal area assignment matrix. plot 1 starts at column 19 (x19), plot 2 starts at column 22 (x22), plot 3 starts at column 25 (x25), etc.
+  constraint_matrix[i, start_col:(start_col + (N_BA_GROUPS - 1))] <- target_ba_distribution_lower # for the row that the loop is currently working on, assigns the lower bound of each basal area bin to the column associated with that plot/bin combination. for example, in plot 1 (row 37), the lower bound of basal area bin 1 is assigned to column 19 (decision variable x19), the lower bound of basal area bin 2 is assigned to column 20 (decision variable x20), and the lower bound of basal area bin 3 is assigned to column 21 (decision variable x21). 
+}
+
+# Loop 2: tree decision variables associated with each plot (these determine which trees get kept and which trees get cut down in our thinning simulation)
+
+start_col <- (N_DENSITY_GROUPS * N_PLOTS) + (N_BA_GROUPS * N_PLOTS) + 1 # Update the starting column to begin at the tree decision variables. Recall that the first N_DENSITY_GROUPS * N_PLOTS = 18 decision variables are associated with the density assignment matrix and the next N_BA_GROUPS * N_PLOTS = 18 decision variables are associated with the basal area assignment matrix. One column after that is where the individual tree assignment variables begin. 
+
+for (i in 1:N_PLOTS) { # loops through plots 1 through 6
+  num_trees <- nrow(get(paste0("plot", i))) # finds the number of trees in plot i based on the data.frames for the removable trees in each plot we created earlier (these are the data.frames named "plot1", "plot2", etc.)
+  constraint_matrix[(N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS)) + i, start_col:(start_col + num_trees - 1)] <- get(paste0("plot", i))$ba * -1  # assign -1 multiplied by the particular basal area of the tree in question to all the tree decision variables in plot i. This line of code finds the right row of the constraint matrix to put those negative basal area coefficients in by skipping over rows 1-36, so plot 1's tree decision variable coefficients are put in row 37, plot 2's tree decision variable coefficients are put in row 38, etc.
+  start_col <- start_col + num_trees  # update the starting column for the next plot
+}
+
+```
+
+### 4.6.12 Rows 43-48
+
+Constraints 43-48 deal with the upper limit of the number of trees in each basal area bin. Plots in basal area bin 1 will have less than or equal to 5 m^2 basal area, plots in basal area bin 2 will have less than or equal to 10 m^2 basal area, and plots in basal area bin 3 will have less than or equal to 15 m^2 basal area. Each plot gets its own upper limit constraint. This batch of constraints will be constructed very similarly to constraints 37-42. 
+
+Constraint 43 (row 43 of the constraint matrix) is about plot 1. Note which decision variables deal with which bin of the basal area assignment matrix plot 1 is assigned to: x19, x20, and x21 (see *Appendix A, Section 3.2* for basal area assignment matrix variables). If x19 = 1, plot 1 is assigned to bin 1 of the basal area assignment matrix and must have less than or equal to 5 m^2 total basal area after thinning. If x20 = 1, plot 1 is assigned to bin 2 of the basal area assignment matrix and must have less than or equal to 10 m^2 total basal area after thinning. If x21 = 1, plot 1 is assigned to bin 3 of the basal area assignment matrix and must have less than or equal to 15 m^2 total basal area after thinning. In this row of the constraint matrix, we will multiply decision variables x19, x20, and x21 by these upper limits of the basal area bins. So in row 43, we put a "5" in column 19, a "10" in column 20, and a "15" in column 21. Our formula for this constraint will thus start with "(5 * x19) + (10 * x20) + (15 * x21)."
+
+Because of constraint number 25 (x19 + x20 + x21 = 1), two of these decision variables will be assigned a 0 by the optimization solver and one of these decision variables will be assigned a 1. That means that the first part of our formula ((5 * x19) + (10 * x20) + (15 * x21)) will equal the upper limit of the total basal area in the plot after thinning, based on which basal area bin that plot is assigned to. For example, if plot 1 is assigned to basal area bin 1, x19 = 1, x20 = 0, and x21 = 0, and (5 * x19) + (10 * x20) + (15 * x21) becomes (5 * 1) + (10 * 0) + (15 * 0) = 0. 
+
+Constraint 43 also needs to take into account which trees are in plot 1 and how many of them need to be removed to meet the basal area bin limit. For every removable tree in plot 1, we will put a "-1" multiplied by the particular basal area of the tree in question in those cells of constraint matrix row 43. You can see which decision variables are associated with removable trees in each plot, and the basal area of each of those trees, in *Appendix A, Section 3.3*. Variables x37 through x43 represent removable trees in plot 1. This means that we will put a "-1" multiplied by the basal area of the tree in row 43, columns 37, 38, 39, 40, 41, 42, and 43 of the constraint matrix. This is represented in our constraint formula as "(-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43)." If the optimization solver removes a tree from the plot, the negative basal area coefficient associated with that tree will be cancelled out because that decision variable will be equal to 0. If the optimization solver keeps a tree in the plot, that negative basal area will be subtracted from the coefficient in the first part of the formula for this constraint (either 5, 10, or 15).  With both the basal area assignment matrix decision variables and the tree decision variables, the mathematical formula for this constraint becomes "(5 * x19) + (10 * x20) + (15 * x21) + (-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43)". 
+
+The final thing we have to account for in this constraint is the basal area of the trees in each plot that are NOT removable, because they count towards the final basal area after thinning. If you open the data.frame "plot_stats," you can see that plots 1 has 0 non-removable trees, or 0 basal area that cannot be removed. This means that this constraint formula will be finished out with "less than or equal to zero." We don't have to worry about the "<= 0" in the constraint matrix: these values will be added to the vectors for formula direction and right hand side values after we finish filling out the constraint matrix. 
+
+For example, let's say that plot 1 is assigned to basal area bin 1, and must contain less than or equal to 5 square meters of total basal area after thinning. That means that x19 = 1, x20 = 0, and x21 = 0. So the first part of our formula (5 * x19) + (10 * x20) + (15 * x21) becomes (5 * 1) + (10 * 0) + (15 * 0) = 5. We are left with 5 + (-0.755306 * x37) + (-1.369058 * x38) + (-1.29647 * x39) + (-0.346621 * x40) + (-1.930411 * x41) + (-1.878314 * x42) + (-0.368072 * x43) >= 0. This means the optimization solver has to get rid of some trees (make those tree decision variables equal to zero) to keep the left side of the equation greater than zero, but it doesn't have to get rid of all of the trees and it has a lot of choice about which trees to keep and which to cut. 
+
+You can see the entire formulae for constraints 43-48 written in mathematical notation in *Appendix A, Section 4.10*. 
+
+Constraints 44-48 repeat this process for plots 2-6. 
+
+Constraint 44 deals with the upper limit of the basal area bins in plot 2. Decision variables x22, x23, and x24 regard which bin of the basal area assignment matrix plot 2 is assigned to. Removable tree decision variables associated with plot 2 are x44 through x49. Plot 2 has 0 non-removable basal area. So the constraint formula is (5 * x22) + (10 * x23) + (15 * x24) + (-1.04935 * x44) + (-1.112922 * x45) + (-1.166098 * x46) + (-0.736422 * x47) + (-0.884034 * x48) + (-0.705924 * x49) >= 0. In row 44 of the constraint matrix, we fill in column 22 with "5", column 23 with "10", column 24 with "15", and columns 44 through 49 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 45 deals with the lower limit of the basal area bins in plot 3. Decision variables x25, x26, and x27 regard which bin of the basal area assignment matrix plot 3 is assigned to. Removable tree decision variables associated with plot 3 are x50 through x54. Plot 3 has 5.824184 square meters of non-removable basal area. The constraint formula is (5 * x25) + (10 * x26) + (15 * x27) + (-1.798609 * x50) + (-1.002511 * x51) + (-0.621592 * x52) + (-2.007961 * x53) + (-1.285411 * x54) >= 5.824184. In row 45 of the constraint matrix, we fill in column 25 with "5", column 26 with "10", column 27 with "15", and columns 50 through 54 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 46 deals with the upper limit of the basal area bins in plot 4. Decision variables x28, x29, and x30 regard which bin of the basal area assignment matrix plot 4 is assigned to. Removable tree decision variables associated with plot 4 are x55 through x56. Plot 4 has 2.645363 square meters of non-removable basal area. The constraint formula is (5 * x28) + (10 * x29) + (15 * x30) + (-1.248226 * x55) + (-0.821385 * x56) >= 2.645363. In row 46 of the constraint matrix, we fill in column 28 with "5", column 29 with "10", column 30 with "15", and columns 55 and 56 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 47 deals with the upper limit of the basal area bins in plot 5. Decision variables x31, x32, and x33 regard which bin of the basal area assignment matrix plot 5 is assigned to. Removable tree decision variables associated with plot 5 are x57 through x63. Plot 5 has 2.630840 square meters of non-removable basal area. The constraint formula is (5 * x31) + (10 * x32) + (15 * x33) + (-2.426398 * x57) + (-1.799726 * x58) + (-2.079124 * x59) + (-1.075571 * x60) + (-1.79419 * x61) + (-0.81289 * x62) + (-1.610356 * x63) >= 2.630840. In row 47 of the constraint matrix, we fill in column 31 with "5", column 32 with "10", column 33 with "15", and columns 57 through 63 with "-1" multiplied by the basal area for each tree. 
+
+Constraint 48 deals with the lower limit of the basal area bins in plot 6. Decision variables x34, x35, and x36 regard which bin of the basal area assignment matrix plot 6 is assigned to. The only removable tree decision variables associated with plot 6 is x64. Plot 6 has 2.976763 square meters of non-removable basal area. The constraint formula is (5 * x34) + (10 * x35) + (15 * x36) + (-1.491417 * x64) >= 2.976763. In row 48 of the constraint matrix, we fill in column 34 with "5", column 35 with "10", column 36 with "15", and column 64 with "-1" multiplied by the basal area for that tree. 
+
+```{r}
+# Rows 43-48
+
+# Fill in the next 6 rows with the upper limit of the total basal area in each bin of the basal area assignment matrix. This will be accomplished with two for loops. The first for loop will address the basal area assignment matrix decision variables. The second for loop will address the tree decision variables.
+
+# Loop 1: basal area assignment matrix decision variables associated with each plot (these determine which plots fall into which bins of the basal area assignment matrix)
+
+for (i in (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS + 1):(N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS + N_PLOTS)) { # loops through lines 43 through 48 of the constraint matrix. N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS + 1 = 43, N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS + N_PLOTS = 48.
+  start_col <- ((i - (N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS + 1)) * N_BA_GROUPS) + 1 # for the row that the loop is currently working on, assigns a starting column for the variables associated with the density assignment matrix. plot 1 starts at column 19 (x19), plot 2 starts at column 22 (x22), plot 3 starts at column 25 (x25), etc.
+  constraint_matrix[i, start_col:(start_col + (N_BA_GROUPS - 1))] <- target_ba_distribution_upper # for the row that the loop is currently working on, assigns the upper bound of each basal area bin to the column associated with that plot/bin combination. for example, in plot 1 (row 43), the upper bound of basal area bin 1 is assigned to column 19 (decision variable x19), the upper bound of basal area bin 2 is assigned to column 20 (decision variable x20), and the upper bound of basal area bin 3 is assigned to column 21 (decision variable x21). 
+}
+
+# Loop 2: tree decision variables associated with each plot (these determine which trees get kept and which trees get cut down in our thinning simulation)
+
+start_col <- (N_DENSITY_GROUPS * N_PLOTS) + (N_BA_GROUPS * N_PLOTS) + 1 # Update the starting column to begin at the tree decision variables. Recall that the first N_DENSITY_GROUPS * N_PLOTS = 18 decision variables are associated with the density assignment matrix and the next N_BA_GROUPS * N_PLOTS = 18 decision variables are associated with the basal area assignment matrix. One column after that is where the individual tree assignment variables begin. 
+
+for (i in 1:N_PLOTS) { # loops through plots 1 through 6
+  num_trees <- nrow(get(paste0("plot", i)))  # finds the number of trees in plot i based on the data.frames for the removable trees in each plot we created earlier (these are the data.frames named "plot1", "plot2", etc.)
+  constraint_matrix[(N_PLOTS + (2 * N_DENSITY_GROUPS) + N_PLOTS + N_PLOTS + N_PLOTS + (2 * N_BA_GROUPS) + N_PLOTS) + i, start_col:(start_col + num_trees - 1)] <- get(paste0("plot", i))$ba * -1  # assign -1 * the particular basal area of the tree in question to all the tree decision variables in plot i. This line of code finds the right row of the constraint matrix to put those negative basal area coefficients in by skipping over rows 1-36, so plot 1's tree decision variable coefficients are put in row 37, plot 2's tree decision variable coefficients are put in row 38, etc.
+  start_col <- start_col + num_trees  # update the starting column for the next plot
+}
+
+```
+
+### 4.6.13 Right hand side and direction values vectors
+
+Now we will compile vectors of right hand side and direction values for each of our 48 constraints. These values were discussed above along with the constraint matrix, and can be seen in *Appendix A, Section 4* with the mathematical formulas for each constraint. To recapitulate:
+
+- Sum of rows in the density assignment matrix must be equal to 1 (constraints 1-6)
+- Sum of columns in the density assignment matrix must be greater than or equal to 1 (constraints 7-9)
+- Sum of columns in the density assignment matrix must be less than or equal to 3 (constraints 10-12)
+- Sum of the number of trees in each plot after thinning must be greater than or equal to the minimum density for the density bin that plot is assigned to (constraints 13-18)
+- Sum of the number of trees in each plot after thinning must be less than or equal to the maximum density for the density bin that plot is assigned to (constraints 19-24)
+- Sum of rows in the basal area assignment matrix must be equal to 1 (constraints 25-30)
+- Sum of columns in the basal area assignment matrix must be greater than or equal to 1 (constraints 31-33)
+- Sum of columns in the basal area assignment matrix must be less than or equal to 3 (constraints 34-36)
+- Sum of the basal area in each plot after thinning must be greater than or equal to the minimum basal area for the basal area bin that plot is assigned to (constraints 37-42)
+- Sum of the basal area in each plot after thinning must be less than or equal to the maximum basal area for the basal area bin that plot is assigned to (constraints 43-48)
+
+First we will create the vector of right hand side values
+
+```{r}
+# Create the right hand side values vector
+
+rhs <- c(rep(1, N_PLOTS), # constraints 1-6
+         rep(1, N_DENSITY_GROUPS), # constraints 7-9
+         rep(3, N_DENSITY_GROUPS), # constraints 10-12
+         (plot_stats$total_trees_not_removable), # constraints 13-18
+         (plot_stats$total_trees_not_removable), # constraints 19-24
+         rep(1, N_PLOTS), # constraints 25-30
+         rep(1, N_BA_GROUPS), # constraints 31-33
+         rep(3, N_BA_GROUPS), # constraints 34-36
+         (plot_stats$total_basal_area_not_removable), # constraints 37-42
+         (plot_stats$total_basal_area_not_removable)) # constraints 43-48
+
+```
+
+Then we will create the vector of direction values
+
+```{r}
+dir <- c(rep("==", (N_PLOTS)), # constraints 1-6
+         rep(">=", N_DENSITY_GROUPS), # constraints 7-9
+         rep("<=", N_DENSITY_GROUPS), # constraints 10-12
+         rep("<=", N_PLOTS), # constraints 13-18
+         rep(">=", N_PLOTS), # constraints 19-24
+         rep("==", N_PLOTS), # constraints 25-30
+         rep(">=", N_BA_GROUPS), # constraints 31-33
+         rep("<=", N_BA_GROUPS), # constraints 34-36
+         rep("<=", N_PLOTS), # constraints 37-42
+         rep(">=", N_PLOTS)) # constraints 43-48
+
+```
+
+## 4.7 Objective function
+
+Each decision variable is represented linearly in the objective function, multiplied by a cost coefficient. This means our objective function has the form:
+
+(a * x1) + (b * x2) + (c * x3)... + (zz * x64)
+
+Recall that decision variables x1 through x18 are associated with assigning particular plots to particular bins of the density assignment matrix, decision variables x19 through x36 are associated with assigning particular plots to particular bins of the basal area assignment matrix, and decision variables x37 through x64 are associated with which individual trees are kept vs. removed. 
+
+All decision variables in this problem are binary, which means the optimization solver will assign them a value of either 0 or 1. Decision variables with a value of 0 are FALSE. For variables x1 through x36, a 0 means that plot is not assigned to that bin. For variables x37 through x64, that tree has not been kept (that is, it is cut down). Decision variables with a value of 1 are TRUE: that plot is assigned to that bin, or that tree is retained. 
+
+To solve our objective function, the 0/1 outcomes of our decision variables are multiplied by their coefficients, and all of these numbers are added together. The goal of the optimization solver in this problem is to MINIMIZE the objective function while meeting all of the constraints. That means that if there are multiple possible ways to solve the problem, the solver will choose the method that results in the lowest possible value for the objective function. 
+
+In this problem, there are no costs associated with assigning plots to bins of the density and basal area assignment matrices; that is, it doesn't matter which plots end up in which bins, as long as the right number of plots end up in each bin. This means that the objective function coefficients for decision variables x1 through x36 are all 0. 
+
+In contrast, there are costs associated with each individual tree; that is, some trees are more "expensive" to keep than other trees. This means that the optimization solver is incentivized to get rid of higher cost trees and retain lower cost trees. These are not monetary costs. In our actual thinning optimization code (not this example problem), these cost coefficients aim to capture real-world thinning probabilities designed to emulate preferences for tree removal found in USFS silvicultural prescriptions in the Yuba watershed. Individual trees are assigned costs based on species and size class. For example, black oaks (Quercus kelloggii) have high value to many wildlife species, they are not overly abundant in the region where our thinning simulations are taking place, and, when cut or burned down, they tend to resprout multiple smaller trunks. All of these factors mean that black oaks have a relatively low probability of removal, and a low cost coefficient to retain. In contrast, white firs (Abies concolor) have less value to wildlife, are overly abundant on the landscape relative to their natural range of variation, and tend to form dense stands that increase wildfire fuel risks. These factors mean that white firs (especially small white firs) have a relatively high probability of removal, and a high cost coefficient to retain. 
+
+Within this example problem, we did not assign trees to different species. Instead, we assigned a random cost coefficient to each tree (generated in *Section 4a, line 190*). You can see these cost coefficients in the data.frame "removable_trees" and in *Appendix A, Section 3.3*. 
+
+In this code chunk, we compile the objective function coefficients into one vector. You can see the formula for the objective function in *Appendix A, Section 5*. 
+
+```{r}
+# Compile cost data into one vector. These costs are the coefficients for each decision variable in the objective function. The costs associated with the assignment matrices are 0, as there's no penalty for assigning specific plots to specific bins. The tree costs were generated above- they are random in this example, but in our real problem the costs are associated with thinning probabilities by species and size class. 
+
+plot_cost_coeffs <- rep(0, ((N_DENSITY_GROUPS + N_BA_GROUPS) * N_PLOTS)) # plot cost coefficients are 0
+
+objective_function_coeffs <- c(plot_cost_coeffs, removable_trees$cost_coefficient) # combine plot cost coefficients with tree cost coefficients generated earlier
+
+```
+
+## 4.8 Putting the elements of our linear program together
+
+The ROI package has a simple method of writing optimization problems piece by piece (see Theußl et al. 2020, section 4.5). First, the user specifies what kind of objective function is being used (linear, quadratic, etc.) and, in the case of a linear objective function like ours, feeds the objective function coefficients into the equation. Next, the user specifies what kinds of constraints the problem contains (linear, quadratic, etc.) and, in the case of linear constraints like ours, feeds the constraint matrix and vectors for right hand side and direction variables into the equation. Next, the user specifies anything else the equation needs to know. For example, is the objective function being minimized or maximized? Are the decision variables discrete or continuous? Are there bounds on any of the variables? In our case, we specify that we are minimizing the objective function and that all of the decision variables are binary. 
+
+```{r}
+# Formulate the optimization problem (OP)
+
+# create the linear program
+
+lp <- OP() # create linear program piece by piece
+
+objective(lp) <- L_objective(objective_function_coeffs)
+
+constraints(lp) <- L_constraint(constraint_matrix, dir = dir, rhs = rhs)
+
+types(lp) <- rep("B", N_VARIABLES) # all binary variables
+
+maximum(lp) <- FALSE # minimize objective function
+
+```
+
+## 4.9 Solve
+
+After we have formulated the optimization problem, we can use the function "ROI_solve" to solve it. Here, we use the open-source solver GLPK, which is ideal for integer linear programming problems like this one. 
+
+After canonicalization, we can use the ROI function "solution" to see the solution to the problem. "Solution" will spit out a vector of 64 0s and 1s that correspond to our 64 decision variables. We can add the command "objval" to the solution function to see the optimal value of the objective function. 
+
+```{r}
+# solve
+
+lp_sol <- ROI_solve(lp, solver = "glpk")
+
+solution(lp_sol) # see the solution
+
+solution(lp_sol, type = "objval") # see the optimal value of the objective function
+
+```
+
+## 4.10 Interpret and visualize results
+
+Staring at a vector of 0s and 1s doesn't lend itself to deep insights about the optimal solution to our problem! In this section we are going to visualize the results to better understand them.
+
+We will start by creating the density and basal area assignment matrices and filling them out with our results (which plots were actually assigned to which bins). This will allow us to see which plots were assigned to which density and basal area bins, and to make sure that our row and column constraints worked as intended. 
+
+We will begin with the density assignment matrix.
+
+```{r}
+## Visualize completed density assignment matrix
+
+# Store the solution as a vector of 0s and 1s
+
+result <- solution(lp_sol)
+
+# Create blank matrix using the results of the first 18 decision variables
+
+density_assignment_matrix <- matrix(result[1:18], nrow = 6, ncol = 3, byrow = TRUE)
+
+# Initialize an empty list to store the bin assignments for each plot
+
+density_plot_assignments <- vector("list", length = 6)
+
+# Loop through each plot and check the corresponding bin
+
+for (i in 1:N_PLOTS) { # loops through plots 1 through 6
+  group_assigned <- which(density_assignment_matrix[i, ] == 1) # figure out which bin each plot was assigned to
+  density_plot_assignments[[i]] <- group_assigned # store the result in the list we created
+}
+
+# Check row and column sums to make sure they fulfill constraints
+
+density_row_sums <- rowSums(density_assignment_matrix)
+
+density_col_sums <- colSums(density_assignment_matrix)
+
+density_assignment_matrix
+density_row_sums
+density_col_sums
+
+```
+
+Looking at the matrix named "density_assignment_matrix" or the list "density_plot_assignments" will show us which plots were assigned to which density bins. The vector "density_row_sums" demonstrates that each plot was assigned to exactly 1 bin of the density assignment matrix. The vector "density_col_sums" reveals that 3 plots were thinned into density bin 1, 2 plots were thinned into density bin 2, and 1 plot was thinned into density bin 3. Our row and column constraints were fulfilled, which is great!
+
+You may be wondering: why did the optimization solver put 3 plots in density bin 1 and 1 plot in density bin 3? How did it decide that this was the most "optimal" solution? Recall that we told the solver to minimize the objective function. This means that the solver was incentivized to remove as many trees as possible while still fulfilling the constraints about how many plots fall into each bin of the density assignment matrix. Because density bin 1 has the lowest density and density bin 3 has the highest density, the solver minimized the value of the objective function by thinning plots to the lowest densities possible. 
+
+Now we will visualize the basal area assignment matrix. 
+
+```{r}
+## Visualize completed basal area assignment matrix
+
+# Create blank matrix using the results of decision variables 19-36
+
+ba_assignment_matrix <- matrix(result[19:36], nrow = 6, ncol = 3, byrow = TRUE)
+
+# Initialize an empty list to store the group assignments for each plot
+
+ba_plot_assignments <- vector("list", length = 6)
+
+# Loop through each plot and check the corresponding group
+
+for (i in 1:N_PLOTS) { # loop through plots 1 through 6
+  group_assigned <- which(ba_assignment_matrix[i, ] == 1) # figure out which bin each plot was assigned to
+  ba_plot_assignments[[i]] <- group_assigned # store that in the list we made earlier
+}
+
+# Check row and column sums to make sure they fulfill constraints
+
+ba_row_sums <- rowSums(ba_assignment_matrix)
+
+ba_col_sums <- colSums(ba_assignment_matrix)
+
+ba_assignment_matrix
+ba_row_sums
+ba_col_sums
+
+```
+
+Looking at "ba_row_sums", we see that each plot was assigned to exactly 1 basal area bin. Looking at "ba_col_sums", we see that 3 plots were assigned to basal area bin 1, 2 plots were assigned to basal area bin 2, and 1 plot was assigned to basal area bin 3. Both of the completed assignment matrices (density and basal area) follow this 3-2-1 pattern. However, interestingly, if a plot falls into a particular bin of one matrix, it doesn't always fall into the analogous bin of the other matrix. For example, plot 2 falls into bin 1 of the basal area assignment matrix but bin 2 of the density assignment matrix. 
+
+Finally, we will use the individual tree assignment results to determine the total number of trees in each plot and the total basal area in each plot after thinning, and compare these to the pre-thinning values. 
+
+```{r}
+## Analyze tree assignment results
+
+# Create vector with just the tree results
+
+tree_assignments <- result[((N_PLOTS * (N_DENSITY_GROUPS + N_BA_GROUPS)) + 1):N_VARIABLES]
+
+# Create empty list for the results from each plot
+
+plot_tree_assignments <- vector("list", length = 6)
+
+# Start index for the for loop below
+
+start_index <- 1
+
+# Extract the tree assignments for plot i, figure out which trees have a value of 1, store the result in the list
+
+for (i in 1:N_PLOTS) { # loop through each plot 1 through 6
+  num_trees <- nrow(get(paste0("plot", i))) # determine the original number of removable trees for the current plot
+
+  plot_trees <- tree_assignments[start_index:(start_index + num_trees - 1)] # figure out which trees in the vector belong to the current plot
+
+  trees_with_1 <- which(plot_trees == 1) # figure out which trees in the current plot were retained (not cut down)
+
+  plot_tree_assignments[[i]] <- trees_with_1 # store the retained trees in the list we created above
+
+  start_index <- start_index + num_trees # update the starting index for the next plot
+}
+
+# Calculate the final sum of trees in each plot + total basal area of each plot after thinning
+
+plot_results <- data.frame(plot = numeric(6), total_trees_after_thinning = numeric(6), total_ba_after_thinning = numeric(6)) # create a blank data.frame to store the results in
+
+
+for (i in 1:N_PLOTS) { # loops through each plot 1 through 6
+  plot_results[i,]$plot <- i # assign a plot number in the blank data.frame we created above
+  plot_results[i,]$total_trees_after_thinning <- length(plot_tree_assignments[[i]]) + get(paste0("plot_stats"))$total_trees_not_removable[i] # determine the total number of trees after thinning by adding all the trees that were retained to the number of non-removable trees in each plot
+  plot_results[i,]$total_ba_after_thinning <- sum(get(paste0("plot", i))$ba[plot_tree_assignments[[i]]]) + get(paste0("plot_stats"))$total_basal_area_not_removable[i] # determine the total basal area of each plot after thinning by adding the basal area of all the trees that were retained to the basal area of the non-removable trees in each plot
+}
+
+plot_results <- full_join(plot_stats, plot_results) # join our results data.frame with an earlier data.frame so we can compare before and after thinning values
+
+plot_results
+```
+
+The data.frame "plot_results" contains the number of pre-thinning trees, non-removable trees, and post-thinning trees in each plot, as well as the pre-thinning basal area, non-removable basal area, and post-thinning basal area in each plot. 
+
+# 5. References *these may need to be re-formatted into a different citation style? unsure which one to use or if it matters. this is APA, perhaps reformat to CSE? don't forget to reformat in-text citations too*
+
+Boyd, S. P., & Vandenberghe, L. (2004). Convex optimization. Cambridge university press.
+
+GLPK (GNU Linear Programming Kit). (n.d.). GNU Project - Free Software Foundation (FSF). Retrieved February 10th, 2025 from <https://www.gnu.org/software/glpk/>. 
+
+Mathematical Optimization. (n.d.). In Wikipedia. Retrieved February 25th, 2025, from <https://en.wikipedia.org/wiki/Mathematical_optimization>. 
+
+Nocedal, J., & Wright, S. J. (Eds.). (1999). Numerical optimization. New York, NY: Springer New York.
+
+Papadimitriou, C. H., & Steiglitz, K. (1998). Combinatorial optimization: algorithms and complexity. Courier Corporation.
+
+Theußl, S., Schwendinger, F., & Hornik, K. (2020). ROI: An extensible R optimization infrastructure. Journal of Statistical Software, 94(15), 1-64.
+
+Ting, C. J. (2022). A Simple Introduction to Optimization. Retrieved February 21st, 2025 from <https://medium.com/@chongjingting/a-simple-introduction-to-optimization-1329b82a8061>. 
+
+Varadhan, R. (2015). Package ‘alabama’. Retrieved February 28th, 2025 from <https://cran.r-project.org/web/packages/alabama/alabama.pdf>. 
+
+Wickham H, Averick M, Bryan J, Chang W, McGowan LD, François R, Grolemund G, Hayes A, Henry L, Hester J, Kuhn M, Pedersen TL, Miller E, Bache SM, Müller K, Ooms J, Robinson D, Seidel DP, Spinu V, Takahashi K, Vaughan D, Wilke C, Woo K, Yutani H (2019). “Welcome to the tidyverse.” Journal of Open Source Software, 4(43), 1686. doi:10.21105/joss.01686.
